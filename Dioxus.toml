@@ -1,5 +1,9 @@
 [application]
 
+[bundle]
+identifier = "com.softberries"
+publisher = "Softberries"
+
 [web.app]
 
 # HTML title tag content

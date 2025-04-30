@@ -1,10 +1,17 @@
 mod pages;
 mod components;
+mod services;
+mod model;
+
+mod settings;
+mod utils;
 
 use dioxus::prelude::*;
 use pages::Buckets;
 use pages::Dashboard;
+use pages::Accounts;
 use components::SettingsModal;
+
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
@@ -14,6 +21,8 @@ enum Route {
     Dashboard {},
     #[route("/buckets")]
     Buckets {},
+    #[route("/accounts")]
+    Accounts {},
     // #[route("/blog/:id")]
     // Blog { id: i32 },
 }
@@ -25,6 +34,7 @@ const LOGO_SMALL: Asset = asset!("/assets/dios3_small.png");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 fn main() {
+
     dioxus::launch(App);
 }
 
@@ -281,14 +291,14 @@ fn LeftSidebar() -> Element {
             }
         }
         li { class: "relative px-6 py-3",
-            a { class: "inline-flex items-center w-full text-sm font-semibold transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200", href: "modals.html",
+            Link { to: Route::Accounts {}, class: "inline-flex items-center w-full text-sm font-semibold transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200",
                 svg {
                     class: "w-5 h-5", fill: "none",
                     stroke_linecap: "round", stroke_linejoin: "round", stroke_width: "2",
                     view_box: "0 0 24 24", stroke: "currentColor",
                     path { d: "M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" }
                 }
-                span { class: "ml-4", "Modals" }
+                span { class: "ml-4", "Accounts" }
             }
         }
         li { class: "relative px-6 py-3",
