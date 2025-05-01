@@ -4,16 +4,7 @@ use dioxus::prelude::*;
 use dioxus::hooks::{use_coroutine, use_signal};
 use crate::components::{AccountCard, AccountModal, ClientsCard, ContactsCard, SalesCard};
 use tokio::task::spawn_blocking;
-
-#[derive(Clone, Debug, PartialEq)]
-struct Account {
-    id: i64,
-    name: String,
-    description: String,
-    access_key: String,
-    secret_key: String,
-    is_default: String,
-}
+use crate::model::account::Account;
 
 fn fetch_accounts() -> Vec<Account> {
     use crate::utils::DB;
@@ -24,25 +15,25 @@ fn fetch_accounts() -> Vec<Account> {
         let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default FROM accounts")
             .expect("prepare failed");
 
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                ))
-            })
-            .expect("query failed");
+        // let rows = stmt
+        //     .query_map([], |row| {
+        //         Ok((
+        //             row.get::<_, i64>(0)?,
+        //             row.get::<_, String>(1)?,
+        //             row.get::<_, String>(2)?,
+        //             row.get::<_, String>(3)?,
+        //             row.get::<_, String>(4)?,
+        //             row.get::<_, String>(5)?,
+        //         ))
+        //     })
+        //     .expect("query failed");
 
-        for row in rows {
-            match row {
-                Ok(account) => println!("✅ Row in DB: {:?}", account),
-                Err(e) => println!("❌ Failed to read row: {}", e),
-            }
-        }
+        // for row in rows {
+        //     match row {
+        //         Ok(account) => println!("✅ Row in DB: {:?}", account),
+        //         Err(e) => println!("❌ Failed to read row: {}", e),
+        //     }
+        // }
         let account_iter = stmt
             .query_map([], |row| {
                 Ok(Account {
@@ -67,6 +58,7 @@ fn fetch_accounts() -> Vec<Account> {
 pub fn Accounts() -> Element {
     let mut show_modal = use_signal(|| false);
     let accounts = use_signal(|| Vec::<Account>::new());
+    let selected_account = use_signal(|| None as Option<Account>);
 
     use_effect(move || {
         let mut accounts = accounts.clone();
@@ -79,7 +71,8 @@ pub fn Accounts() -> Element {
     rsx!(
         if *show_modal.read() {
                     AccountModal {
-                        show_modal: show_modal.clone()
+                        show_modal: show_modal.clone(),
+                        selected_account: selected_account.clone()
                     }
                 }
         main { class: "h-full overflow-y-auto",
@@ -96,7 +89,7 @@ pub fn Accounts() -> Element {
                         }
                     }
                     GithubStarAction {},
-                    AccountsTable { accounts: accounts.read().clone() }
+                    AccountsTable { accounts: accounts.read().clone(), selected_account: selected_account.clone(), show_modal: show_modal.clone() }
                 }
             }
     )
@@ -129,8 +122,7 @@ fn GithubStarAction() -> Element {
 }
 
 #[component]
-fn AccountsTable(accounts: Vec<Account>) -> Element {
-    println!("ACCOUNtS: {:?}", accounts);
+fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account>>, show_modal: Signal<bool>) -> Element {
     rsx! {
     div { class: "w-full overflow-hidden rounded-lg shadow-xs",
         div { class: "w-full overflow-x-auto",
@@ -146,7 +138,10 @@ fn AccountsTable(accounts: Vec<Account>) -> Element {
                     }
                 }
                 tbody { class: "bg-white divide-y dark:divide-gray-700 dark:bg-gray-800",
-                    {accounts.into_iter().map(|acc| rsx!(
+                    {accounts.into_iter().map(|acc| {
+                        let mut selected_account = selected_account.clone();
+                        let mut show_modal = show_modal.clone();
+                        rsx!(
                         tr { class: "text-gray-700 dark:text-gray-400",
                             td { class: "px-4 py-3", "{acc.name}" }
                             td { class: "px-4 py-3 text-sm", "{acc.access_key}" }
@@ -160,17 +155,20 @@ fn AccountsTable(accounts: Vec<Account>) -> Element {
                             td { class: "px-4 py-3 space-x-2",
                                 button {
                                     class: "px-2 py-1 text-sm text-white bg-blue-500 rounded hover:bg-blue-600 focus:outline-none",
-                                    onclick: move |_| { println!("Edit account: {:?}", acc.id); },
+                                    onclick: move |_| {
+                                        selected_account.set(Some(acc.clone()));
+                                        show_modal.set(true);
+                                    },
                                     "Edit"
                                 }
                                 button {
                                     class: "px-2 py-1 text-sm text-white bg-red-500 rounded hover:bg-red-600 focus:outline-none",
-                                    onclick: move |_| { println!("Delete account: {:?}", acc.id); },
+                                    onclick: move |_| { println!("Delete account: {:?}", 1); },
                                     "Delete"
                                 }
                             }
                         }
-                    ))}
+                    )})}
                 }
             }
         }

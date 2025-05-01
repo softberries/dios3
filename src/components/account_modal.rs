@@ -3,35 +3,47 @@ use once_cell::sync::Lazy;
 use std::sync::Mutex;
 use crate::utils::DB;
 use tokio::task::spawn_blocking;
+use crate::model::account::Account;
 
 fn save_account_to_db(
+    account_id: Option<i64>,
     name: &str,
     description: &str,
     access_key: &str,
     secret_key: &str,
-    is_default: bool,
+    is_default: &str,
 ) {
     if let Some(conn) = DB.lock().unwrap().as_ref() {
-        println!("SAVING ACCOUNT");
-        conn.execute(
-            "INSERT INTO accounts (name, description, access_key, secret_key, is_default) VALUES (?1, ?2, ?3, ?4, ?5)",
-            &[name, description, access_key, secret_key, "true"],
-        ).expect("Failed to insert account");
+        if let Some(id) = account_id {
+            println!("UPDATING ACCOUNT {}", id);
+            conn.execute(
+                "UPDATE accounts SET name = ?1, description = ?2, access_key = ?3, secret_key = ?4, is_default = ?5 WHERE id = ?6",
+                &[name, description, access_key, secret_key, is_default, &id.to_string()],
+            ).expect("Failed to update account");
+        } else {
+            println!("INSERTING NEW ACCOUNT");
+            conn.execute(
+                "INSERT INTO accounts (name, description, access_key, secret_key, is_default) VALUES (?1, ?2, ?3, ?4, ?5)",
+                &[name, description, access_key, secret_key, is_default],
+            ).expect("Failed to insert account");
+        }
     }
 }
 
 #[derive(Props, Clone, PartialEq)]
 pub struct AccountModalProps {
     show_modal: Signal<bool>,
+    selected_account: Signal<Option<Account>>,
 }
 
 #[component]
 pub fn AccountModal(mut props: AccountModalProps) -> Element {
-    let mut account_name = use_signal(String::new);
-    let mut short_description = use_signal(String::new);
-    let mut access_key = use_signal(String::new);
-    let mut secret_key = use_signal(String::new);
-    let mut set_default = use_signal(String::new);
+    let account = props.selected_account.read().clone();
+    let mut account_name = use_signal(|| account.as_ref().map(|a| a.name.clone()).unwrap_or_default());
+    let mut short_description = use_signal(|| account.as_ref().map(|a| a.description.clone()).unwrap_or_default());
+    let mut access_key = use_signal(|| account.as_ref().map(|a| a.access_key.clone()).unwrap_or_default());
+    let mut secret_key = use_signal(|| account.as_ref().map(|a| a.secret_key.clone()).unwrap_or_default());
+    let mut is_default = use_signal(|| account.as_ref().map(|a| a.is_default.clone()).unwrap_or_default());
 
     rsx! {
         div {
@@ -41,7 +53,7 @@ pub fn AccountModal(mut props: AccountModalProps) -> Element {
                 class: "bg-white dark:bg-gray-800 rounded-lg p-6 shadow-xl w-full max-w-md",
                 onclick: move |e| e.stop_propagation(), // prevent click from closing the modal
 
-                h2 { class: "text-xl font-bold mb-4 text-gray-900 dark:text-gray-100", "New Account" }
+                h2 { class: "text-xl font-bold mb-4 text-gray-900 dark:text-gray-100", if account.is_some() { "Edit Account" } else { "New Account" } }
 
                 form {
                     class: "space-y-4",
@@ -52,9 +64,10 @@ pub fn AccountModal(mut props: AccountModalProps) -> Element {
                         let description = short_description.read().clone();
                         let access_key = access_key.read().clone();
                         let secret_key = secret_key.read().clone();
+                        let account_id = account.as_ref().map(|a| a.id);
 
                         spawn_blocking(move || {
-                            save_account_to_db(&name, &description, &access_key, &secret_key, true);
+                            save_account_to_db(account_id, &name, &description, &access_key, &secret_key, "true");
                         });
 
                         props.show_modal.set(false);
@@ -106,7 +119,7 @@ pub fn AccountModal(mut props: AccountModalProps) -> Element {
                             r#type: "checkbox",
                             // checked: "{set_default}",
                             checked: "true",
-                            onchange: move |e| set_default.set("true".to_owned()),
+                            onchange: move |e| is_default.set("true".to_owned()),
                         }
                     }
                     div {
