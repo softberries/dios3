@@ -61,6 +61,36 @@ impl S3DataFetcher {
         }
     }
 
+
+    /// Creates a new S3DataFetcher using the first account found in the database (prioritizing is_default).
+    pub fn from_db_account() -> Option<Self> {
+        let db_guard = crate::utils::DB.lock().unwrap();
+        let conn = db_guard.as_ref()?;
+
+        let mut stmt = conn.prepare("SELECT access_key, secret_key, is_default, name FROM accounts ORDER BY is_default DESC, id ASC LIMIT 1")
+            .ok()?;
+        let mut rows = stmt.query([]).ok()?;
+
+        if let Some(row) = rows.next().ok()? {
+            let access_key: String = row.get(0).ok()?;
+            let secret_access_key: String = row.get(1).ok()?;
+            let credentials = Credentials::new(
+                access_key,
+                secret_access_key,
+                None,
+                None,
+                "db_account",
+            );
+            let default_region = "eu-north-1".to_string(); // or use a stored default region if available
+            Some(S3DataFetcher {
+                default_region,
+                credentials,
+            })
+        } else {
+            None
+        }
+    }
+
     /*
     this function handles only simple files as of now.
     - not sure when and if necessary to use multipart uploads,
@@ -200,7 +230,7 @@ impl S3DataFetcher {
 
     // Example async method to fetch data from an external service
     async fn list_buckets(&self) -> eyre::Result<Vec<S3DataItem>> {
-        let client = self.get_s3_client(None).await;
+        let client = self.get_s3_client_with_account(None).await;
         let mut fetched_data: Vec<S3DataItem> = vec![];
         if let Ok(res) = client.list_buckets().send().await {
             fetched_data = res.buckets.as_ref().map_or_else(
@@ -554,6 +584,57 @@ impl S3DataFetcher {
         } else {
             credentials = self.credentials.clone();
             default_region = self.default_region.clone();
+        }
+        let region_provider = RegionProviderChain::first_try(Region::new(default_region))
+            .or_default_provider()
+            .or_else(Region::new("eu-north-1"));
+        let shared_config = aws_config::from_env()
+            .credentials_provider(credentials)
+            .region(region_provider)
+            .load()
+            .await;
+        Client::new(&shared_config)
+    }
+
+    /// Like get_s3_client, but takes Option<Account> (from DB or given), not FileCredential.
+    pub async fn get_s3_client_with_account(&self, account: Option<crate::model::account::Account>) -> Client {
+        let credentials: Credentials;
+        let default_region: String;
+        if let Some(acc) = account {
+            let access_key = acc.access_key;
+            let secret_access_key = acc.secret_key;
+            default_region = self.default_region.clone();
+            credentials = Credentials::new(
+                access_key,
+                secret_access_key,
+                None,     // Token, if using temporary credentials (like STS)
+                None,     // Expiry time, if applicable
+                "account_struct", // Source, just a label for debugging
+            );
+        } else {
+            let db_guard = crate::utils::DB.lock().unwrap();
+            let conn = db_guard.as_ref().expect("Database connection is not initialized");
+
+            let mut stmt = conn.prepare("SELECT access_key, secret_key, is_default, name FROM accounts ORDER BY is_default DESC, id ASC LIMIT 1")
+                .expect("Failed to prepare query");
+            let mut rows = stmt.query([]).expect("Failed to query accounts");
+
+            if let Some(row) = rows.next().expect("Failed to fetch row") {
+                let access_key: String = row.get(0).expect("Missing access_key");
+                let secret_access_key: String = row.get(1).expect("Missing secret_key");
+                default_region = self.default_region.clone();
+                credentials = Credentials::new(
+                    access_key,
+                    secret_access_key,
+                    None,
+                    None,
+                    "db_account",
+                );
+            } else {
+                // fallback to self.credentials if no account found
+                credentials = self.credentials.clone();
+                default_region = self.default_region.clone();
+            }
         }
         let region_provider = RegionProviderChain::first_try(Region::new(default_region))
             .or_default_provider()

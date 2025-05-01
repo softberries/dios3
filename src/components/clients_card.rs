@@ -1,5 +1,6 @@
 use std::time::Duration;
 use dioxus::prelude::*;
+use crate::services::s3_data_fetcher::S3DataFetcher;
 
 #[component]
 pub fn ClientsCard() -> Element {
@@ -12,8 +13,10 @@ pub fn ClientsCard() -> Element {
         move |_: UnboundedReceiver<u32>| async move {
             // Simulate fetching from a remote source
             // Replace with real fetch later using surf, reqwest, etc.
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            clients.set(Some(8421)); // Example fetched number
+            let buckets = S3DataFetcher::from_db_account().unwrap().list_current_location(None, None).await;
+            // tokio::time::sleep(Duration::from_secs(2)).await;
+            // println!("BUCKETS: {:?}", buckets.unwrap_or(Vec::new()).len());
+            clients.set(Some(buckets.unwrap_or(Vec::new()).len() as u32)); // Example fetched number
             loading.set(false);
         }
     });
@@ -34,7 +37,7 @@ pub fn ClientsCard() -> Element {
                 div {
                     p {
                         class: "mb-2 text-sm font-medium text-gray-600 dark:text-gray-400",
-                        "Total clients"
+                        "Total Buckets"
                     }
                     p {
                         class: "text-lg font-semibold text-gray-700 dark:text-gray-200",
