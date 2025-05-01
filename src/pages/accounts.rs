@@ -59,6 +59,7 @@ pub fn Accounts() -> Element {
     let mut show_modal = use_signal(|| false);
     let accounts = use_signal(|| Vec::<Account>::new());
     let selected_account = use_signal(|| None as Option<Account>);
+    let mut refresh_accounts = use_signal(|| false);
 
     use_effect(move || {
         let mut accounts = accounts.clone();
@@ -68,11 +69,23 @@ pub fn Accounts() -> Element {
         });
     });
 
+    use_effect(move || {
+        if *refresh_accounts.read() {
+            let mut accounts = accounts.clone();
+            spawn(async move {
+                let data = tokio::task::spawn_blocking(move || fetch_accounts()).await.unwrap();
+                accounts.set(data);
+                refresh_accounts.set(false);
+            });
+        }
+    });
+
     rsx!(
         if *show_modal.read() {
                     AccountModal {
                         show_modal: show_modal.clone(),
-                        selected_account: selected_account.clone()
+                        selected_account: selected_account.clone(),
+                        refresh_accounts: refresh_accounts.clone(),
                     }
                 }
         main { class: "h-full overflow-y-auto",

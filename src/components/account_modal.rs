@@ -34,6 +34,7 @@ fn save_account_to_db(
 pub struct AccountModalProps {
     show_modal: Signal<bool>,
     selected_account: Signal<Option<Account>>,
+    refresh_accounts: Signal<bool>,
 }
 
 #[component]
@@ -69,7 +70,7 @@ pub fn AccountModal(mut props: AccountModalProps) -> Element {
                         spawn_blocking(move || {
                             save_account_to_db(account_id, &name, &description, &access_key, &secret_key, "true");
                         });
-
+                        props.refresh_accounts.set(true);
                         props.show_modal.set(false);
                     },
                     div {
