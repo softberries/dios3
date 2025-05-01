@@ -5,53 +5,8 @@ use dioxus::hooks::{use_coroutine, use_signal};
 use crate::components::{AccountCard, AccountModal, ClientsCard, ContactsCard, SalesCard};
 use tokio::task::spawn_blocking;
 use crate::model::account::Account;
-
-fn fetch_accounts() -> Vec<Account> {
-    use crate::utils::DB;
-    let db = DB.lock().unwrap();
-    if let Some(conn) = &*db {
-        println!("🟡 Querying accounts...");
-
-        let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default FROM accounts")
-            .expect("prepare failed");
-
-        // let rows = stmt
-        //     .query_map([], |row| {
-        //         Ok((
-        //             row.get::<_, i64>(0)?,
-        //             row.get::<_, String>(1)?,
-        //             row.get::<_, String>(2)?,
-        //             row.get::<_, String>(3)?,
-        //             row.get::<_, String>(4)?,
-        //             row.get::<_, String>(5)?,
-        //         ))
-        //     })
-        //     .expect("query failed");
-
-        // for row in rows {
-        //     match row {
-        //         Ok(account) => println!("✅ Row in DB: {:?}", account),
-        //         Err(e) => println!("❌ Failed to read row: {}", e),
-        //     }
-        // }
-        let account_iter = stmt
-            .query_map([], |row| {
-                Ok(Account {
-                    id: row.get::<_, i64>(0)?,
-                    name: row.get::<_, String>(1)?,
-                    description: row.get::<_, String>(2)?,
-                    access_key: row.get::<_, String>(3)?,
-                    secret_key: row.get::<_, String>(4)?,
-                    is_default: row.get::<_, String>(5)?
-                })
-            })
-            .expect("Failed to query accounts");
-
-        account_iter.filter_map(Result::ok).collect()
-    } else {
-        vec![]
-    }
-}
+use crate::repositories::account_repo;
+use crate::repositories::account_repo::fetch_accounts;
 
 /// Home page
 #[component]

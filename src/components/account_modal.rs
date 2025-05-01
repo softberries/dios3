@@ -4,31 +4,7 @@ use std::sync::Mutex;
 use crate::utils::DB;
 use tokio::task::spawn_blocking;
 use crate::model::account::Account;
-
-fn save_account_to_db(
-    account_id: Option<i64>,
-    name: &str,
-    description: &str,
-    access_key: &str,
-    secret_key: &str,
-    is_default: &str,
-) {
-    if let Some(conn) = DB.lock().unwrap().as_ref() {
-        if let Some(id) = account_id {
-            println!("UPDATING ACCOUNT {}", id);
-            conn.execute(
-                "UPDATE accounts SET name = ?1, description = ?2, access_key = ?3, secret_key = ?4, is_default = ?5 WHERE id = ?6",
-                &[name, description, access_key, secret_key, is_default, &id.to_string()],
-            ).expect("Failed to update account");
-        } else {
-            println!("INSERTING NEW ACCOUNT");
-            conn.execute(
-                "INSERT INTO accounts (name, description, access_key, secret_key, is_default) VALUES (?1, ?2, ?3, ?4, ?5)",
-                &[name, description, access_key, secret_key, is_default],
-            ).expect("Failed to insert account");
-        }
-    }
-}
+use crate::repositories::account_repo::save_account_to_db;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct AccountModalProps {

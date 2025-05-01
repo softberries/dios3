@@ -6,6 +6,8 @@ mod model;
 mod settings;
 mod utils;
 
+mod repositories;
+
 use dioxus::prelude::*;
 use pages::Buckets;
 use pages::Dashboard;
