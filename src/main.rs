@@ -11,7 +11,7 @@ use pages::Buckets;
 use pages::Dashboard;
 use pages::Accounts;
 use components::SettingsModal;
-
+use crate::utils::init_db;
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
@@ -34,7 +34,8 @@ const LOGO_SMALL: Asset = asset!("/assets/dios3_small.png");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 fn main() {
-
+    // let rt = tokio::runtime::Runtime::new().unwrap();
+    init_db();
     dioxus::launch(App);
 }
 

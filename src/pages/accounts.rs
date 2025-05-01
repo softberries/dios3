@@ -3,11 +3,79 @@ use std::time::Duration;
 use dioxus::prelude::*;
 use dioxus::hooks::{use_coroutine, use_signal};
 use crate::components::{AccountCard, AccountModal, ClientsCard, ContactsCard, SalesCard};
+use tokio::task::spawn_blocking;
+
+#[derive(Clone, Debug, PartialEq)]
+struct Account {
+    id: i64,
+    name: String,
+    description: String,
+    access_key: String,
+    secret_key: String,
+    is_default: String,
+}
+
+fn fetch_accounts() -> Vec<Account> {
+    use crate::utils::DB;
+    let db = DB.lock().unwrap();
+    if let Some(conn) = &*db {
+        println!("🟡 Querying accounts...");
+
+        let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default FROM accounts")
+            .expect("prepare failed");
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })
+            .expect("query failed");
+
+        for row in rows {
+            match row {
+                Ok(account) => println!("✅ Row in DB: {:?}", account),
+                Err(e) => println!("❌ Failed to read row: {}", e),
+            }
+        }
+        let account_iter = stmt
+            .query_map([], |row| {
+                Ok(Account {
+                    id: row.get::<_, i64>(0)?,
+                    name: row.get::<_, String>(1)?,
+                    description: row.get::<_, String>(2)?,
+                    access_key: row.get::<_, String>(3)?,
+                    secret_key: row.get::<_, String>(4)?,
+                    is_default: row.get::<_, String>(5)?
+                })
+            })
+            .expect("Failed to query accounts");
+
+        account_iter.filter_map(Result::ok).collect()
+    } else {
+        vec![]
+    }
+}
 
 /// Home page
 #[component]
 pub fn Accounts() -> Element {
     let mut show_modal = use_signal(|| false);
+    let accounts = use_signal(|| Vec::<Account>::new());
+
+    use_effect(move || {
+        let mut accounts = accounts.clone();
+        spawn(async move {
+            let data = spawn_blocking(move || fetch_accounts());
+            accounts.set(data.await.unwrap());
+        });
+    });
+
     rsx!(
         if *show_modal.read() {
                     AccountModal {
@@ -28,7 +96,7 @@ pub fn Accounts() -> Element {
                         }
                     }
                     GithubStarAction {},
-                    AccountsTable {}
+                    AccountsTable { accounts: accounts.read().clone() }
                 }
             }
     )
@@ -61,7 +129,8 @@ fn GithubStarAction() -> Element {
 }
 
 #[component]
-fn AccountsTable() -> Element {
+fn AccountsTable(accounts: Vec<Account>) -> Element {
+    println!("ACCOUNtS: {:?}", accounts);
     rsx! {
     div { class: "w-full overflow-hidden rounded-lg shadow-xs",
         div { class: "w-full overflow-x-auto",
@@ -76,33 +145,19 @@ fn AccountsTable() -> Element {
                     }
                 }
                 tbody { class: "bg-white divide-y dark:divide-gray-700 dark:bg-gray-800",
-                    tr { class: "text-gray-700 dark:text-gray-400",
-                        td { class: "px-4 py-3",
-                            div { class: "flex items-center text-sm",
-                                div { class: "relative hidden w-8 h-8 mr-3 rounded-full md:block",
-                                    img {
-                                        class: "object-cover w-full h-full rounded-full",
-                                        src: "https://images.unsplash.com/flagged/photo-1570612861542-284f4c12e75f?ixlib=rb-1.2.1&q=80&fm=jpg&crop=entropy&cs=tinysrgb&w=200&fit=max&ixid=eyJhcHBfaWQiOjE3Nzg0fQ",
-                                        alt: "",
-                                        loading: "lazy"
-                                    }
-                                    div { class: "absolute inset-0 rounded-full shadow-inner", aria_hidden: "true" }
-                                }
-                                div {
-                                    p { class: "font-semibold", "Reco SE" }
-                                    p { class: "text-xs text-gray-600 dark:text-gray-400", "production" }
+                    {accounts.into_iter().map(|acc| rsx!(
+                        tr { class: "text-gray-700 dark:text-gray-400",
+                            td { class: "px-4 py-3", "{acc.name}" }
+                            td { class: "px-4 py-3 text-sm", "{acc.access_key}" }
+                            td { class: "px-4 py-3 text-xs",
+                                span {
+                                    class: "px-2 py-1 font-semibold leading-tight text-green-700 bg-green-100 rounded-full dark:bg-green-700 dark:text-green-100",
+                                    "{acc.secret_key}"
                                 }
                             }
+                            td { class: "px-4 py-3 text-sm", "-" }
                         }
-                        td { class: "px-4 py-3 text-sm", "abcd-efgh-xyz" }
-                        td { class: "px-4 py-3 text-xs",
-                            span {
-                                class: "px-2 py-1 font-semibold leading-tight text-green-700 bg-green-100 rounded-full dark:bg-green-700 dark:text-green-100",
-                                "XYZ-ABC-123...Z"
-                            }
-                        }
-                        td { class: "px-4 py-3 text-sm", "6/10/2020" }
-                    }
+                    ))}
                 }
             }
         }
