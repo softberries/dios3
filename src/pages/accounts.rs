@@ -60,6 +60,7 @@ pub fn Accounts() -> Element {
     let accounts = use_signal(|| Vec::<Account>::new());
     let selected_account = use_signal(|| None as Option<Account>);
     let mut refresh_accounts = use_signal(|| false);
+    let mut account_to_delete = use_signal(|| None as Option<Account>);
 
     use_effect(move || {
         let mut accounts = accounts.clone();
@@ -87,7 +88,42 @@ pub fn Accounts() -> Element {
                         selected_account: selected_account.clone(),
                         refresh_accounts: refresh_accounts.clone(),
                     }
+                },
+        if let Some(acc) = account_to_delete.read().as_ref() {
+                div { class: "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center",
+                    div { class: "bg-white dark:bg-gray-800 p-6 rounded shadow",
+                        h2 { class: "text-lg font-bold mb-4", "Confirm Delete" }
+                        p { "Are you sure you want to delete account: ", {acc.name.clone()}, "?" }
+                        div { class: "flex justify-end space-x-2",
+                            button {
+                                class: "px-4 py-2 bg-gray-300 rounded hover:bg-gray-400",
+                                onclick: move |_| account_to_delete.set(None),
+                                "Cancel"
+                            }
+                            button {
+                                class: "px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700",
+                                onclick: {
+                                    let account_id = acc.id;
+                                    let mut account_to_delete = account_to_delete.clone();
+                                    let mut refresh_accounts = refresh_accounts.clone();
+                                    move |_| {
+                                        spawn_blocking(move || {
+                                            let db = crate::utils::DB.lock().unwrap();
+                                            if let Some(conn) = &*db {
+                                                conn.execute("DELETE FROM accounts WHERE id = ?", [&account_id])
+                                                    .expect("Failed to delete account");
+                                            }
+                                        });
+                                        account_to_delete.set(None);
+                                        refresh_accounts.set(true);
+                                    }
+                                },
+                                "Delete"
+                            }
+                        }
+                    }
                 }
+            },
         main { class: "h-full overflow-y-auto",
                 div { class: "container px-6 mx-auto grid",
                     div { class: "flex items-center justify-between mt-6 mb-5",
@@ -102,7 +138,7 @@ pub fn Accounts() -> Element {
                         }
                     }
                     GithubStarAction {},
-                    AccountsTable { accounts: accounts.read().clone(), selected_account: selected_account.clone(), show_modal: show_modal.clone() }
+                    AccountsTable { accounts: accounts.read().clone(), selected_account: selected_account.clone(), show_modal: show_modal.clone(), account_to_delete: account_to_delete.clone()}
                 }
             }
     )
@@ -135,7 +171,7 @@ fn GithubStarAction() -> Element {
 }
 
 #[component]
-fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account>>, show_modal: Signal<bool>) -> Element {
+fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account>>, show_modal: Signal<bool>, account_to_delete: Signal<Option<Account>>) -> Element {
     rsx! {
     div { class: "w-full overflow-hidden rounded-lg shadow-xs",
         div { class: "w-full overflow-x-auto",
@@ -152,6 +188,8 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
                 }
                 tbody { class: "bg-white divide-y dark:divide-gray-700 dark:bg-gray-800",
                     {accounts.into_iter().map(|acc| {
+                        let acc_for_edit = acc.clone();
+                        let acc_for_delete = acc.clone();
                         let mut selected_account = selected_account.clone();
                         let mut show_modal = show_modal.clone();
                         rsx!(
@@ -166,17 +204,26 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
                             }
                             td { class: "px-4 py-3 text-sm", "-" }
                             td { class: "px-4 py-3 space-x-2",
-                                button {
-                                    class: "px-2 py-1 text-sm text-white bg-blue-500 rounded hover:bg-blue-600 focus:outline-none",
-                                    onclick: move |_| {
-                                        selected_account.set(Some(acc.clone()));
-                                        show_modal.set(true);
-                                    },
-                                    "Edit"
+                        button {
+                            class: "px-2 py-1 text-sm text-white bg-blue-500 rounded hover:bg-blue-600 focus:outline-none",
+                            onclick: {
+                                let mut selected_account = selected_account.clone();
+                                let mut show_modal = show_modal.clone();
+                                move |_| {
+                                    selected_account.set(Some(acc_for_edit.clone()));
+                                    show_modal.set(true);
                                 }
+                            },
+                            "Edit"
+                        }
                                 button {
                                     class: "px-2 py-1 text-sm text-white bg-red-500 rounded hover:bg-red-600 focus:outline-none",
-                                    onclick: move |_| { println!("Delete account: {:?}", 1); },
+                                    onclick: {
+                                        let mut account_to_delete = account_to_delete.clone();
+                                        move |_| {
+                                            account_to_delete.set(Some(acc_for_delete.clone()));
+                                        }
+                                    },
                                     "Delete"
                                 }
                             }
