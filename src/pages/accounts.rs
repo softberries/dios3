@@ -142,6 +142,7 @@ fn AccountsTable(accounts: Vec<Account>) -> Element {
                         th { class: "px-4 py-3", "Access Key" }
                         th { class: "px-4 py-3", "Secret Key" }
                         th { class: "px-4 py-3", "Last Accessed" }
+                        th { class: "px-4 py-3", "Actions" }
                     }
                 }
                 tbody { class: "bg-white divide-y dark:divide-gray-700 dark:bg-gray-800",
@@ -156,6 +157,18 @@ fn AccountsTable(accounts: Vec<Account>) -> Element {
                                 }
                             }
                             td { class: "px-4 py-3 text-sm", "-" }
+                            td { class: "px-4 py-3 space-x-2",
+                                button {
+                                    class: "px-2 py-1 text-sm text-white bg-blue-500 rounded hover:bg-blue-600 focus:outline-none",
+                                    onclick: move |_| { println!("Edit account: {:?}", acc.id); },
+                                    "Edit"
+                                }
+                                button {
+                                    class: "px-2 py-1 text-sm text-white bg-red-500 rounded hover:bg-red-600 focus:outline-none",
+                                    onclick: move |_| { println!("Delete account: {:?}", acc.id); },
+                                    "Delete"
+                                }
+                            }
                         }
                     ))}
                 }
