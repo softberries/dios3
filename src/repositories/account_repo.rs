@@ -6,29 +6,8 @@ pub fn fetch_accounts() -> Vec<Account> {
     let db = DB.lock().unwrap();
     if let Some(conn) = &*db {
         println!("🟡 Querying accounts...");
-
         let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default FROM accounts")
             .expect("prepare failed");
-
-        // let rows = stmt
-        //     .query_map([], |row| {
-        //         Ok((
-        //             row.get::<_, i64>(0)?,
-        //             row.get::<_, String>(1)?,
-        //             row.get::<_, String>(2)?,
-        //             row.get::<_, String>(3)?,
-        //             row.get::<_, String>(4)?,
-        //             row.get::<_, String>(5)?,
-        //         ))
-        //     })
-        //     .expect("query failed");
-
-        // for row in rows {
-        //     match row {
-        //         Ok(account) => println!("✅ Row in DB: {:?}", account),
-        //         Err(e) => println!("❌ Failed to read row: {}", e),
-        //     }
-        // }
         let account_iter = stmt
             .query_map([], |row| {
                 Ok(Account {
@@ -70,5 +49,37 @@ pub fn save_account_to_db(
                 &[name, description, access_key, secret_key, is_default],
             ).expect("Failed to insert account");
         }
+    }
+}
+
+pub fn get_default_account() -> Option<Account> {
+    let db_guard = crate::utils::DB.lock().unwrap();
+    let conn = db_guard.as_ref()?;
+
+    let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default FROM accounts ORDER BY is_default DESC, id ASC LIMIT 1")
+        .ok()?;
+    let mut rows = stmt.query([]).ok()?;
+    if let Some(row) = rows.next().ok()? {
+        let acc = Account {
+            id: row.get::<_, i64>(0).ok()?,
+            name: row.get::<_, String>(1).ok()?,
+            description: row.get::<_, String>(2).ok()?,
+            access_key: row.get::<_, String>(3).ok()?,
+            secret_key: row.get::<_, String>(4).ok()?,
+            is_default: row.get::<_, String>(5).ok()?
+        };
+        println!("returning some acc: {:?}", acc);
+        Some(acc)
+    } else {
+        println!("returning none");
+        None
+    }
+}
+
+pub fn delete_account(account_id: i64) {
+    let db = DB.lock().unwrap();
+    if let Some(conn) = &*db {
+        conn.execute("DELETE FROM accounts WHERE id = ?", [&account_id])
+            .expect("Failed to delete account");
     }
 }

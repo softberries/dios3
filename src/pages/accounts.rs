@@ -6,8 +6,9 @@ use crate::components::{AccountCard, AccountModal, ClientsCard, ContactsCard, Sa
 use tokio::task::spawn_blocking;
 use crate::model::account::Account;
 use crate::repositories::account_repo;
-use crate::repositories::account_repo::fetch_accounts;
+use crate::repositories::account_repo::{delete_account, fetch_accounts};
 
+const S3_IMG: Asset = asset!("/assets/aws_logo.png");
 /// Home page
 #[component]
 pub fn Accounts() -> Element {
@@ -63,11 +64,7 @@ pub fn Accounts() -> Element {
                                     let mut refresh_accounts = refresh_accounts.clone();
                                     move |_| {
                                         spawn_blocking(move || {
-                                            let db = crate::utils::DB.lock().unwrap();
-                                            if let Some(conn) = &*db {
-                                                conn.execute("DELETE FROM accounts WHERE id = ?", [&account_id])
-                                                    .expect("Failed to delete account");
-                                            }
+                                            delete_account(account_id);
                                         });
                                         account_to_delete.set(None);
                                         refresh_accounts.set(true);
@@ -149,7 +146,23 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
                         let mut show_modal = show_modal.clone();
                         rsx!(
                         tr { class: "text-gray-700 dark:text-gray-400",
-                            td { class: "px-4 py-3", "{acc.name}" }
+                                td { class: "px-4 py-3",
+                                    div { class: "flex items-center text-sm",
+                                        div { class: "relative hidden w-8 h-8 mr-3 rounded-full md:block",
+                                            img {
+                                                class: "object-cover w-full h-full rounded-full",
+                                                src: "{S3_IMG}",
+                                                alt: "",
+                                                loading: "lazy"
+                                            }
+                                            div { class: "absolute inset-0 rounded-full shadow-inner", aria_hidden: "true" }
+                                        }
+                                        div {
+                                            p { class: "font-semibold", "{acc.name}" }
+                                            p { class: "text-xs text-gray-600 dark:text-gray-400", "{acc.description}" }
+                                        }
+                                    }
+                                }
                             td { class: "px-4 py-3 text-sm", "{acc.access_key}" }
                             td { class: "px-4 py-3 text-xs",
                                 span {

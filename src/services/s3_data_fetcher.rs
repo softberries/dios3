@@ -28,6 +28,7 @@ use aws_sdk_s3::error::ProvideErrorMetadata;
 use bytes::Bytes;
 use color_eyre::{eyre, Report};
 use http_body::{Body, SizeHint};
+use crate::repositories::account_repo::get_default_account;
 
 /// Handles interactions with the s3 services through AWS sdk
 #[derive(Clone)]
@@ -61,22 +62,11 @@ impl S3DataFetcher {
         }
     }
 
-
-    /// Creates a new S3DataFetcher using the first account found in the database (prioritizing is_default).
     pub fn from_db_account() -> Option<Self> {
-        let db_guard = crate::utils::DB.lock().unwrap();
-        let conn = db_guard.as_ref()?;
-
-        let mut stmt = conn.prepare("SELECT access_key, secret_key, is_default, name FROM accounts ORDER BY is_default DESC, id ASC LIMIT 1")
-            .ok()?;
-        let mut rows = stmt.query([]).ok()?;
-
-        if let Some(row) = rows.next().ok()? {
-            let access_key: String = row.get(0).ok()?;
-            let secret_access_key: String = row.get(1).ok()?;
+        if let Some(acc) = get_default_account() {
             let credentials = Credentials::new(
-                access_key,
-                secret_access_key,
+                acc.access_key,
+                acc.secret_key,
                 None,
                 None,
                 "db_account",
@@ -612,24 +602,15 @@ impl S3DataFetcher {
                 "account_struct", // Source, just a label for debugging
             );
         } else {
-            let db_guard = crate::utils::DB.lock().unwrap();
-            let conn = db_guard.as_ref().expect("Database connection is not initialized");
-
-            let mut stmt = conn.prepare("SELECT access_key, secret_key, is_default, name FROM accounts ORDER BY is_default DESC, id ASC LIMIT 1")
-                .expect("Failed to prepare query");
-            let mut rows = stmt.query([]).expect("Failed to query accounts");
-
-            if let Some(row) = rows.next().expect("Failed to fetch row") {
-                let access_key: String = row.get(0).expect("Missing access_key");
-                let secret_access_key: String = row.get(1).expect("Missing secret_key");
-                default_region = self.default_region.clone();
+            if let Some(acc) = get_default_account() {
                 credentials = Credentials::new(
-                    access_key,
-                    secret_access_key,
+                    acc.access_key,
+                    acc.secret_key,
                     None,
                     None,
                     "db_account",
                 );
+                default_region = self.default_region.clone();
             } else {
                 // fallback to self.credentials if no account found
                 credentials = self.credentials.clone();
