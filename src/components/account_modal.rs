@@ -21,6 +21,7 @@ pub fn AccountModal(mut props: AccountModalProps) -> Element {
     let mut access_key = use_signal(|| account.as_ref().map(|a| a.access_key.clone()).unwrap_or_default());
     let mut secret_key = use_signal(|| account.as_ref().map(|a| a.secret_key.clone()).unwrap_or_default());
     let mut is_default = use_signal(|| account.as_ref().map(|a| a.is_default.clone()).unwrap_or_default());
+    let mut default_region = use_signal(|| account.as_ref().map(|a| a.default_region.clone()).unwrap_or_default());
 
     rsx! {
         div {
@@ -41,10 +42,11 @@ pub fn AccountModal(mut props: AccountModalProps) -> Element {
                         let description = short_description.read().clone();
                         let access_key = access_key.read().clone();
                         let secret_key = secret_key.read().clone();
+                        let default_region = default_region.read().clone();
                         let account_id = account.as_ref().map(|a| a.id);
 
                         spawn_blocking(move || {
-                            save_account_to_db(account_id, &name, &description, &access_key, &secret_key, "true");
+                            save_account_to_db(account_id, &name, &description, &access_key, &secret_key, "true", &default_region);
                         });
                         props.refresh_accounts.set(true);
                         props.show_modal.set(false);
@@ -97,6 +99,26 @@ pub fn AccountModal(mut props: AccountModalProps) -> Element {
                             // checked: "{set_default}",
                             checked: "true",
                             onchange: move |e| is_default.set("true".to_owned()),
+                        }
+                    }
+                    div {
+                        label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300", "Default Region" }
+                        select {
+                            class: "w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white",
+                            value: "{default_region}",
+                            oninput: move |e| default_region.set(e.value().clone()),
+                            option { value: "", "Select a region" }
+                            option { value: "us-east-1", "US East (N. Virginia)" }
+                            option { value: "us-west-1", "US West (N. California)" }
+                            option { value: "us-west-2", "US West (Oregon)" }
+                            option { value: "eu-west-1", "EU (Ireland)" }
+                            option { value: "eu-central-1", "EU (Frankfurt)" }
+                            option { value: "ap-southeast-1", "Asia Pacific (Singapore)" }
+                            option { value: "ap-northeast-1", "Asia Pacific (Tokyo)" }
+                            option { value: "ap-southeast-2", "Asia Pacific (Sydney)" }
+                            option { value: "ap-northeast-2", "Asia Pacific (Seoul)" }
+                            option { value: "sa-east-1", "South America (São Paulo)" }
+                            option { value: "ca-central-1", "Canada (Central)" }
                         }
                     }
                     div {

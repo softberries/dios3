@@ -11,12 +11,15 @@ pub fn ClientsCard() -> Element {
         let mut clients = clients.clone();
         let mut loading = loading.clone();
         move |_: UnboundedReceiver<u32>| async move {
-            // Simulate fetching from a remote source
-            // Replace with real fetch later using surf, reqwest, etc.
-            let buckets = S3DataFetcher::from_db_account().unwrap().list_current_location(None, None).await;
-            // tokio::time::sleep(Duration::from_secs(2)).await;
-            // println!("BUCKETS: {:?}", buckets.unwrap_or(Vec::new()).len());
-            clients.set(Some(buckets.unwrap_or(Vec::new()).len() as u32)); // Example fetched number
+            let buckets_count = if let Some(fetcher) = S3DataFetcher::from_db_account() {
+                match fetcher.list_current_location(None, None).await {
+                    Ok(buckets) => buckets.len() as u32,
+                    Err(_) => 0,
+                }
+            } else {
+                0
+            };
+            clients.set(Some(buckets_count));
             loading.set(false);
         }
     });

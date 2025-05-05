@@ -6,7 +6,7 @@ pub fn fetch_accounts() -> Vec<Account> {
     let db = DB.lock().unwrap();
     if let Some(conn) = &*db {
         println!("🟡 Querying accounts...");
-        let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default FROM accounts")
+        let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default, default_region FROM accounts")
             .expect("prepare failed");
         let account_iter = stmt
             .query_map([], |row| {
@@ -16,7 +16,8 @@ pub fn fetch_accounts() -> Vec<Account> {
                     description: row.get::<_, String>(2)?,
                     access_key: row.get::<_, String>(3)?,
                     secret_key: row.get::<_, String>(4)?,
-                    is_default: row.get::<_, String>(5)?
+                    is_default: row.get::<_, String>(5)?,
+                    default_region: row.get::<_, String>(6)?
                 })
             })
             .expect("Failed to query accounts");
@@ -34,19 +35,20 @@ pub fn save_account_to_db(
     access_key: &str,
     secret_key: &str,
     is_default: &str,
+    default_region: &str,
 ) {
     if let Some(conn) = DB.lock().unwrap().as_ref() {
         if let Some(id) = account_id {
             println!("UPDATING ACCOUNT {}", id);
             conn.execute(
-                "UPDATE accounts SET name = ?1, description = ?2, access_key = ?3, secret_key = ?4, is_default = ?5 WHERE id = ?6",
+                "UPDATE accounts SET name = ?1, description = ?2, access_key = ?3, secret_key = ?4, is_default = ?5, default_region= ?6 WHERE id = ?6",
                 &[name, description, access_key, secret_key, is_default, &id.to_string()],
             ).expect("Failed to update account");
         } else {
             println!("INSERTING NEW ACCOUNT");
             conn.execute(
-                "INSERT INTO accounts (name, description, access_key, secret_key, is_default) VALUES (?1, ?2, ?3, ?4, ?5)",
-                &[name, description, access_key, secret_key, is_default],
+                "INSERT INTO accounts (name, description, access_key, secret_key, is_default, default_region) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                &[name, description, access_key, secret_key, is_default, default_region],
             ).expect("Failed to insert account");
         }
     }
@@ -56,7 +58,7 @@ pub fn get_default_account() -> Option<Account> {
     let db_guard = crate::utils::DB.lock().unwrap();
     let conn = db_guard.as_ref()?;
 
-    let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default FROM accounts ORDER BY is_default DESC, id ASC LIMIT 1")
+    let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default, default_region FROM accounts ORDER BY is_default DESC, id ASC LIMIT 1")
         .ok()?;
     let mut rows = stmt.query([]).ok()?;
     if let Some(row) = rows.next().ok()? {
@@ -66,7 +68,8 @@ pub fn get_default_account() -> Option<Account> {
             description: row.get::<_, String>(2).ok()?,
             access_key: row.get::<_, String>(3).ok()?,
             secret_key: row.get::<_, String>(4).ok()?,
-            is_default: row.get::<_, String>(5).ok()?
+            is_default: row.get::<_, String>(5).ok()?,
+            default_region: row.get::<_, String>(5).ok()?
         };
         println!("returning some acc: {:?}", acc);
         Some(acc)

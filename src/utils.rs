@@ -30,7 +30,8 @@ pub fn init_db() {
             description TEXT,
             access_key TEXT,
             secret_key TEXT,
-            is_default INTEGER
+            is_default INTEGER,
+            default_region TEXT
         )",
         [],
     ).expect("Failed to create accounts table");

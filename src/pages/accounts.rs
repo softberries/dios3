@@ -134,6 +134,7 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
                         th { class: "px-4 py-3", "Name" }
                         th { class: "px-4 py-3", "Access Key" }
                         th { class: "px-4 py-3", "Secret Key" }
+                        th { class: "px-4 py-3", "Region" }
                         th { class: "px-4 py-3", "Last Accessed" }
                         th { class: "px-4 py-3", "Actions" }
                     }
@@ -170,6 +171,7 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
                                     "{acc.secret_key}"
                                 }
                             }
+                            td { class: "px-4 py-3 text-sm", "{acc.default_region}" }
                             td { class: "px-4 py-3 text-sm", "-" }
                             td { class: "px-4 py-3 space-x-2",
                         button {
