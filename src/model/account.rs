@@ -5,6 +5,6 @@ pub struct Account {
     pub description: String,
     pub access_key: String,
     pub secret_key: String,
-    pub is_default: String,
+    pub is_default: bool,
     pub default_region: String
 }

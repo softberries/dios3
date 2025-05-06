@@ -136,6 +136,7 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
                         th { class: "px-4 py-3", "Secret Key" }
                         th { class: "px-4 py-3", "Region" }
                         th { class: "px-4 py-3", "Last Accessed" }
+                        th { class: "px-4 py-3", "Default?" }
                         th { class: "px-4 py-3", "Actions" }
                     }
                 }
@@ -173,6 +174,14 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
                             }
                             td { class: "px-4 py-3 text-sm", "{acc.default_region}" }
                             td { class: "px-4 py-3 text-sm", "-" }
+                            td { class: "px-4 py-3 text-sm",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: acc.is_default,
+                                    class: "form-checkbox h-5 w-5 text-purple-600 pointer-events-none focus:outline-none",
+                                    tabindex: "-1"
+                                }
+                            }
                             td { class: "px-4 py-3 space-x-2",
                         button {
                             class: "px-2 py-1 text-sm text-white bg-blue-500 rounded hover:bg-blue-600 focus:outline-none",

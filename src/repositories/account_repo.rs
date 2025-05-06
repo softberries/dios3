@@ -16,7 +16,7 @@ pub fn fetch_accounts() -> Vec<Account> {
                     description: row.get::<_, String>(2)?,
                     access_key: row.get::<_, String>(3)?,
                     secret_key: row.get::<_, String>(4)?,
-                    is_default: row.get::<_, String>(5)?,
+                    is_default: row.get::<_, i64>(5).map(|e| e == 1)?,
                     default_region: row.get::<_, String>(6)?
                 })
             })
@@ -34,21 +34,30 @@ pub fn save_account_to_db(
     description: &str,
     access_key: &str,
     secret_key: &str,
-    is_default: &str,
+    is_default: bool,
     default_region: &str,
 ) {
     if let Some(conn) = DB.lock().unwrap().as_ref() {
+        //not transactional but good enough for now
+        if is_default {
+            // Unset is_default for all other accounts
+            conn.execute(
+                "UPDATE accounts SET is_default = 0 WHERE is_default = 1",
+                [],
+            ).expect("Failed to unset previous default account");
+        }
+
         if let Some(id) = account_id {
             println!("UPDATING ACCOUNT {}", id);
             conn.execute(
-                "UPDATE accounts SET name = ?1, description = ?2, access_key = ?3, secret_key = ?4, is_default = ?5, default_region= ?6 WHERE id = ?6",
-                &[name, description, access_key, secret_key, is_default, &id.to_string()],
+                "UPDATE accounts SET name = ?1, description = ?2, access_key = ?3, secret_key = ?4, is_default = ?5, default_region = ?6 WHERE id = ?7",
+                rusqlite::params![name, description, access_key, secret_key, if is_default { 1 } else { 0 }, default_region, id],
             ).expect("Failed to update account");
         } else {
             println!("INSERTING NEW ACCOUNT");
             conn.execute(
                 "INSERT INTO accounts (name, description, access_key, secret_key, is_default, default_region) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                &[name, description, access_key, secret_key, is_default, default_region],
+                rusqlite::params![name, description, access_key, secret_key, if is_default { 1 } else { 0 }, default_region],
             ).expect("Failed to insert account");
         }
     }
@@ -68,7 +77,7 @@ pub fn get_default_account() -> Option<Account> {
             description: row.get::<_, String>(2).ok()?,
             access_key: row.get::<_, String>(3).ok()?,
             secret_key: row.get::<_, String>(4).ok()?,
-            is_default: row.get::<_, String>(5).ok()?,
+            is_default: row.get::<_, i64>(5).map(|e| e == 1).ok()?,
             default_region: row.get::<_, String>(5).ok()?
         };
         println!("returning some acc: {:?}", acc);

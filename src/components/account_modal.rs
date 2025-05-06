@@ -42,11 +42,14 @@ pub fn AccountModal(mut props: AccountModalProps) -> Element {
                         let description = short_description.read().clone();
                         let access_key = access_key.read().clone();
                         let secret_key = secret_key.read().clone();
+                        let is_default = is_default.read().clone();
                         let default_region = default_region.read().clone();
                         let account_id = account.as_ref().map(|a| a.id);
 
+                        println!("SEtting account default value to: {:?}", is_default);
+
                         spawn_blocking(move || {
-                            save_account_to_db(account_id, &name, &description, &access_key, &secret_key, "true", &default_region);
+                            save_account_to_db(account_id, &name, &description, &access_key, &secret_key, is_default, &default_region);
                         });
                         props.refresh_accounts.set(true);
                         props.show_modal.set(false);
@@ -94,11 +97,10 @@ pub fn AccountModal(mut props: AccountModalProps) -> Element {
                     div {
                         label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300", "Set Default" }
                         input {
-                            class: "w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white",
+                            class: "h-5 w-5 text-purple-600 rounded",
                             r#type: "checkbox",
-                            // checked: "{set_default}",
-                            checked: "true",
-                            onchange: move |e| is_default.set("true".to_owned()),
+                            checked: *is_default.read(),
+                            onchange: move |e| is_default.set(e.value().parse::<bool>().unwrap_or(e.checked())),
                         }
                     }
                     div {
