@@ -7,6 +7,7 @@ use tokio::task::spawn_blocking;
 use crate::model::account::Account;
 use crate::repositories::account_repo;
 use crate::repositories::account_repo::{delete_account, fetch_accounts};
+use crate::utils::CURRENT_ACCOUNT;
 
 const S3_IMG: Asset = asset!("/assets/aws_logo.png");
 /// Home page

@@ -15,7 +15,7 @@ use pages::Accounts;
 use components::SettingsModal;
 use components::TopBar;
 use components::LeftSidebar;
-use crate::utils::init_db;
+use crate::utils::{init_db, init_state};
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
@@ -45,6 +45,7 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    init_state();
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: MAIN_CSS } document::Link { rel: "stylesheet", href: TAILWIND_CSS }

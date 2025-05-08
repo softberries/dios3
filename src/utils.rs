@@ -4,9 +4,24 @@ use directories::ProjectDirs;
 use once_cell::sync::Lazy;
 use rusqlite::Connection;
 use std::sync::Mutex;
+use dioxus::prelude::{GlobalSignal, Signal};
+use crate::model::account::Account;
+use crate::repositories::account_repo::fetch_accounts;
+use std::sync::Once;
 
+static INIT: Once = Once::new();
 
 pub static DB: Lazy<Mutex<Option<Connection>>> = Lazy::new(|| Mutex::new(None));
+pub static CURRENT_ACCOUNT: GlobalSignal<Option<Account>> = Signal::global(|| None);
+
+pub fn init_state() {
+    INIT.call_once(|| {
+        let accounts = fetch_accounts();
+        if let Some(account) = accounts.iter().find(|a| a.is_default) {
+            CURRENT_ACCOUNT.write().insert(account.clone());
+        }
+    });
+}
 
 pub fn init_db() {
     let db_path = get_data_dir().join("dios3").join("accounts.db");
