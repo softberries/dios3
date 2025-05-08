@@ -169,7 +169,7 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
                             td { class: "px-4 py-3 text-xs",
                                 span {
                                     class: "px-2 py-1 font-semibold leading-tight text-green-700 bg-green-100 rounded-full dark:bg-green-700 dark:text-green-100",
-                                    "{acc.secret_key}"
+                                    "{acc.masked_secret_key()}"
                                 }
                             }
                             td { class: "px-4 py-3 text-sm", "{acc.default_region}" }
