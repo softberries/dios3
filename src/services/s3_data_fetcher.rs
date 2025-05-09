@@ -3,16 +3,14 @@ use crate::model::s3_data_item::{BucketInfo, FileInfo, S3DataItem};
 use crate::model::s3_selected_item::S3SelectedItem;
 use crate::settings::file_credentials::FileCredential;
 use aws_sdk_s3::config::{Credentials, Region};
-use aws_smithy_runtime_api::http::Request;
+use dioxus::prelude::*;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::{
-    convert::Infallible,
     fs,
     path::PathBuf,
-    pin::Pin,
-    task::{Context, Poll},
+    pin::Pin
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -21,14 +19,13 @@ use crate::model::upload_progress_item::UploadProgressItem;
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
 use aws_sdk_s3::{
-    primitives::{ByteStream, SdkBody},
+    primitives::ByteStream,
     Client,
 };
 use aws_sdk_s3::error::ProvideErrorMetadata;
-use bytes::Bytes;
 use color_eyre::{eyre, Report};
-use http_body::{Body, SizeHint};
 use crate::repositories::account_repo::get_default_account;
+use crate::utils::CURRENT_ACCOUNT;
 
 /// Handles interactions with the s3 services through AWS sdk
 #[derive(Clone)]
@@ -45,23 +42,6 @@ pub struct S3DataFetcher {
  */
 
 impl S3DataFetcher {
-    pub fn new(creds: FileCredential) -> Self {
-        let access_key = creds.access_key;
-        let secret_access_key = creds.secret_key;
-        let default_region = creds.default_region;
-        let credentials = Credentials::new(
-            access_key,
-            secret_access_key,
-            None,     // Token, if using temporary credentials (like STS)
-            None,     // Expiry time, if applicable
-            "manual", // Source, just a label for debugging
-        );
-        S3DataFetcher {
-            default_region,
-            credentials,
-        }
-    }
-
     pub fn from_db_account() -> Option<Self> {
         if let Some(acc) = get_default_account() {
             let credentials = Credentials::new(
@@ -71,7 +51,7 @@ impl S3DataFetcher {
                 None,
                 "db_account",
             );
-            let default_region = "eu-north-1".to_string(); // or use a stored default region if available
+            let default_region = acc.default_region;
             Some(S3DataFetcher {
                 default_region,
                 credentials,
@@ -91,7 +71,8 @@ impl S3DataFetcher {
         item: LocalSelectedItem,
         upload_tx: UnboundedSender<UploadProgressItem>,
     ) -> eyre::Result<bool> {
-        let client = self.get_s3_client(Some(item.s3_creds)).await;
+        let account = CURRENT_ACCOUNT.read().clone();
+        let client = self.get_s3_client_with_account(account).await;
         let body = ByteStream::read_from()
             .path(item.path)
             // https://github.com/awslabs/aws-sdk-rust/blob/main/examples/examples/s3/src/bin/put-object-progress.rs
@@ -143,7 +124,8 @@ impl S3DataFetcher {
         item: S3SelectedItem,
         download_tx: UnboundedSender<DownloadProgressItem>,
     ) -> eyre::Result<bool> {
-        let client = self.get_s3_client(Some(item.s3_creds)).await;
+        let account = CURRENT_ACCOUNT.read().clone();
+        let client = self.get_s3_client_with_account(account).await;
         let mut path = PathBuf::from(item.destination_dir);
         path.push(item.path.clone().unwrap_or(item.name.clone()));
         self.create_directory_structure(&path)?;
@@ -171,7 +153,7 @@ impl S3DataFetcher {
                     byte_count += bytes_len;
                     let progress = Self::calculate_download_percentage(total, byte_count);
                     let download_progress_item = DownloadProgressItem {
-                        name: item.path.clone().unwrap_or(item.name.clone())    ,
+                        name: item.path.clone().unwrap_or(item.name.clone()),
                         bucket: bucket.clone(),
                         progress,
                     };
@@ -209,7 +191,8 @@ impl S3DataFetcher {
 
     async fn get_bucket_location(&self, bucket: &str) -> eyre::Result<String> {
         let default_region = self.default_region.clone();
-        let client = self.get_s3_client(None).await;
+        let account = CURRENT_ACCOUNT.read().clone();
+        let client = self.get_s3_client_with_account(account).await;
         let head_obj = client.get_bucket_location().bucket(bucket).send().await?;
         let location = head_obj
             .location_constraint()
@@ -220,7 +203,8 @@ impl S3DataFetcher {
 
     // Example async method to fetch data from an external service
     async fn list_buckets(&self) -> eyre::Result<Vec<S3DataItem>> {
-        let client = self.get_s3_client_with_account(None).await;
+        let account = CURRENT_ACCOUNT.read().clone();
+        let client = self.get_s3_client_with_account(account).await;
         let mut fetched_data: Vec<S3DataItem> = vec![];
         if let Ok(res) = client.list_buckets().send().await {
             fetched_data = res.buckets.as_ref().map_or_else(
@@ -258,7 +242,8 @@ impl S3DataFetcher {
         name: String,
         region: String,
     ) -> eyre::Result<Option<String>> {
-        let client = self.get_s3_client(None).await;
+        let account = CURRENT_ACCOUNT.read().clone();
+        let client = self.get_s3_client_with_account(account).await;
         let constraint = BucketLocationConstraint::from(region.as_str());
         let cfg = CreateBucketConfiguration::builder()
             .location_constraint(constraint)
@@ -303,7 +288,8 @@ impl S3DataFetcher {
                 default_region: location.clone(),
                 selected: false,
             };
-            let client_with_location = self.get_s3_client(Some(temp_file_creds)).await;
+            let account = CURRENT_ACCOUNT.read().clone();
+            let client_with_location = self.get_s3_client_with_account(account).await;
             let response = client_with_location
                 .delete_bucket()
                 .bucket(name.clone())
@@ -343,7 +329,8 @@ impl S3DataFetcher {
             default_region: location.clone(),
             selected: false,
         };
-        let client_with_location = self.get_s3_client(Some(temp_file_creds)).await;
+        let account = CURRENT_ACCOUNT.read().clone();
+        let client_with_location = self.get_s3_client_with_account(account).await;
         let response = client_with_location
             .delete_object()
             .key(name)
@@ -389,7 +376,8 @@ impl S3DataFetcher {
             default_region: location.clone(),
             selected: false,
         };
-        let client_with_location = self.get_s3_client(Some(temp_file_creds)).await;
+        let account = CURRENT_ACCOUNT.read().clone();
+        let client_with_location = self.get_s3_client_with_account(account).await;
         let mut response = client_with_location
             .list_objects_v2()
             .delimiter("/")
@@ -492,6 +480,7 @@ impl S3DataFetcher {
         location: &'a str,
         all_objects: &'a mut Vec<S3DataItem>,
     ) -> Pin<Box<dyn std::future::Future<Output=Result<(), Report>> + Send + 'a>> {
+        let account = CURRENT_ACCOUNT.read().clone();
         Box::pin(async move {
             let creds = self.credentials.clone();
             let temp_file_creds = FileCredential {
@@ -501,8 +490,7 @@ impl S3DataFetcher {
                 default_region: location.to_string(),
                 selected: false,
             };
-
-            let client_with_location = self.get_s3_client(Some(temp_file_creds)).await;
+            let client_with_location = self.get_s3_client_with_account(account).await;
             let mut response = client_with_location
                 .list_objects_v2()
                 .delimiter("/")

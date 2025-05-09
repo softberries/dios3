@@ -1,4 +1,3 @@
-use std::arch::aarch64::uint32x2_t;
 use std::time::Duration;
 use dioxus::prelude::*;
 use dioxus::hooks::{use_coroutine, use_signal};
