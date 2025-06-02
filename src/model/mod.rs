@@ -10,3 +10,4 @@ pub mod transfer_item;
 pub mod upload_progress_item;
 
 pub mod account;
+pub mod bucket;

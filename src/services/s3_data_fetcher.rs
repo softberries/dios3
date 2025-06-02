@@ -181,6 +181,7 @@ impl S3DataFetcher {
         bucket: Option<String>,
         prefix: Option<String>,
     ) -> eyre::Result<Vec<S3DataItem>> {
+        println!("list_current_location");
         match (bucket, prefix) {
             (None, None) => self.list_buckets().await,
             (Some(bucket), None) => self.list_objects(bucket.as_str(), None).await,
@@ -202,11 +203,13 @@ impl S3DataFetcher {
     }
 
     // Example async method to fetch data from an external service
-    async fn list_buckets(&self) -> eyre::Result<Vec<S3DataItem>> {
+    pub async fn list_buckets(&self) -> eyre::Result<Vec<S3DataItem>> {
+        println!("list_buckets");
         let account = CURRENT_ACCOUNT.read().clone();
         let client = self.get_s3_client_with_account(account).await;
         let mut fetched_data: Vec<S3DataItem> = vec![];
         if let Ok(res) = client.list_buckets().send().await {
+            println!("res: {:?}", res);
             fetched_data = res.buckets.as_ref().map_or_else(
                 Vec::new, // In case there is no buckets field (it's None), return an empty Vec
                 |buckets| {

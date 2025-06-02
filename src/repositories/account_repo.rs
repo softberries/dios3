@@ -64,31 +64,39 @@ pub fn save_account_to_db(
 }
 
 pub fn get_default_account() -> Option<Account> {
-    let db_guard = crate::utils::DB.lock().unwrap();
-    let conn = db_guard.as_ref()?;
-
-    let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default, default_region FROM accounts ORDER BY is_default DESC, id ASC LIMIT 1")
-        .ok()?;
-    let mut rows = stmt.query([]).ok()?;
-    if let Some(row) = rows.next().ok()? {
-        let acc = Account {
-            id: row.get::<_, i64>(0).ok()?,
-            name: row.get::<_, String>(1).ok()?,
-            description: row.get::<_, String>(2).ok()?,
-            access_key: row.get::<_, String>(3).ok()?,
-            secret_key: row.get::<_, String>(4).ok()?,
-            is_default: row.get::<_, i64>(5).map(|e| e == 1).ok()?,
-            default_region: row.get::<_, String>(5).ok()?
-        };
-        println!("returning some acc: {:?}", acc);
-        Some(acc)
+    let db = DB.lock().unwrap();
+    let conn = db.as_ref()?;
+    
+    let mut stmt = conn.prepare(
+        "SELECT id, name, description, access_key, secret_key, is_default, default_region 
+         FROM accounts 
+         WHERE is_default = 1 
+         ORDER BY id DESC 
+         LIMIT 1"
+    ).ok()?;
+    
+    let account = stmt.query_row([], |row| {
+        Ok(Account {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
+            access_key: row.get(3)?,
+            secret_key: row.get(4)?,
+            is_default: row.get::<_, i64>(5).map(|v| v == 1)?,
+            default_region: row.get(6)?
+        })
+    }).ok();
+    
+    if let Some(ref acc) = account {
+        println!("Found default account: {:?}", acc);
     } else {
-        println!("returning none");
-        None
+        println!("No default account found");
     }
+    
+    account
 }
 
-pub fn delete_account(account_id: i64) {
+pub fn delete_account(account_id: i64) -> () {
     let db = DB.lock().unwrap();
     if let Some(conn) = &*db {
         conn.execute("DELETE FROM accounts WHERE id = ?", [&account_id])

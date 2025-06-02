@@ -11,12 +11,21 @@ pub fn ClientsCard() -> Element {
         let mut clients = clients.clone();
         let mut loading = loading.clone();
         move |_: UnboundedReceiver<u32>| async move {
+            println!("list_current_location coroutine");
             let buckets_count = if let Some(fetcher) = S3DataFetcher::from_db_account() {
+                println!("S3DataFetcher created successfully");
                 match fetcher.list_current_location(None, None).await {
-                    Ok(buckets) => buckets.len() as u32,
-                    Err(_) => 0,
+                    Ok(buckets) => {
+                        println!("buckets: {:?}", buckets);
+                        buckets.len() as u32
+                    }
+                    Err(e) => {
+                        println!("error: {:?}", e);
+                        0
+                    }
                 }
             } else {
+                println!("S3DataFetcher::from_db_account() returned None - no default account?");
                 0
             };
             clients.set(Some(buckets_count));

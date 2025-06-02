@@ -4,36 +4,55 @@ use dioxus::hooks::{use_coroutine, use_signal};
 use crate::components::{AccountCard, BucketModal, ClientsCard, ContactsCard, SalesCard};
 use tokio::task::spawn_blocking;
 use crate::components::github_star_action::GithubStarAction;
-use crate::model::account::Account;
-use crate::repositories::account_repo;
-use crate::repositories::account_repo::{delete_account, fetch_accounts};
+use crate::model::bucket::Bucket;
+use crate::services::s3_data_fetcher::S3DataFetcher;
 use crate::utils::CURRENT_ACCOUNT;
 
 const S3_IMG: Asset = asset!("/assets/aws_logo.png");
+
+async fn list_buckets() -> Vec<Bucket> {
+    if let Some(fetcher) = S3DataFetcher::from_db_account() {
+        match fetcher.list_current_location(None, None).await {
+            Ok(buckets) => buckets.iter().map(|b| -> Bucket { 
+                let region_clone = b.region.as_ref().map(|r| r.to_string());
+                Bucket { name: b.name.clone(), region: region_clone } 
+            }).collect(),
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    }
+}
+
+fn delete_bucket(bucket_name: &str) -> () {
+    // TODO: Implement actual bucket deletion
+    println!("Deleting bucket with name: {}", bucket_name);
+}
+
 /// Home page
 #[component]
 pub fn Buckets() -> Element {
     let mut show_modal = use_signal(|| false);
-    let accounts = use_signal(|| Vec::<Account>::new());
-    let selected_account = use_signal(|| None as Option<Account>);
-    let mut refresh_accounts = use_signal(|| false);
-    let mut account_to_delete = use_signal(|| None as Option<Account>);
+    let buckets = use_signal(|| Vec::<Bucket>::new());
+    let selected_bucket = use_signal(|| None as Option<Bucket>);
+    let mut refresh_buckets = use_signal(|| false);
+    let mut bucket_to_delete = use_signal(|| None as Option<Bucket>);
 
     use_effect(move || {
-        let mut accounts = accounts.clone();
+        let mut buckets = buckets.clone();
         spawn(async move {
-            let data = spawn_blocking(move || fetch_accounts());
-            accounts.set(data.await.unwrap());
+            let data = list_buckets().await;
+            buckets.set(data);
         });
     });
 
     use_effect(move || {
-        if *refresh_accounts.read() {
-            let mut accounts = accounts.clone();
+        if *refresh_buckets.read() {
+            let mut buckets = buckets.clone();
             spawn(async move {
-                let data = tokio::task::spawn_blocking(move || fetch_accounts()).await.unwrap();
-                accounts.set(data);
-                refresh_accounts.set(false);
+                let data = list_buckets().await;
+                buckets.set(data);
+                refresh_buckets.set(false);
             });
         }
     });
@@ -42,35 +61,34 @@ pub fn Buckets() -> Element {
         if *show_modal.read() {
                     BucketModal {
                         show_modal: show_modal.clone(),
-                        selected_account: selected_account.clone(),
-                        refresh_accounts: refresh_accounts.clone(),
+                        selected_bucket: selected_bucket.clone(),
+                        refresh_buckets: refresh_buckets.clone(),
                     }
                 },
-        if let Some(acc) = account_to_delete.read().as_ref() {
+        if let Some(bck) = bucket_to_delete.read().as_ref() {
                 div { class: "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center",
                     div { class: "bg-white dark:bg-gray-800 p-6 rounded shadow",
                         h2 { class: "text-lg font-bold mb-4", "Confirm Delete" }
-                        p { "Are you sure you want to delete bucket: ", {acc.name.clone()}, "?" }
+                        p { "Are you sure you want to delete bucket: ", {bck.name.clone()}, "?" }
                         div { class: "flex justify-end space-x-2",
                             button {
                                 class: "px-4 py-2 bg-gray-300 rounded hover:bg-gray-400",
-                                onclick: move |_| account_to_delete.set(None),
+                                onclick: move |_| bucket_to_delete.set(None),
                                 "Cancel"
                             }
                             button {
                                 class: "px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700",
                                 onclick: {
-                                    let account_id = acc.id;
-                                    let mut account_to_delete = account_to_delete.clone();
-                                    let mut refresh_accounts = refresh_accounts.clone();
+                                    let mut bucket_to_delete = bucket_to_delete.clone();
+                                    let mut refresh_buckets = refresh_buckets.clone();
+                                    let name = bck.name.clone();
                                     move |_| {
-                                        spawn_blocking(move || {
-                                            delete_account(account_id);
-                                        });
-                                        account_to_delete.set(None);
-                                        refresh_accounts.set(true);
+                                        let name = name.clone();
+                                        spawn_blocking(move || delete_bucket(&name));
+                                        bucket_to_delete.set(None);
+                                        refresh_buckets.set(true);
                                     }
-                                },
+                                }, 
                                 "Delete"
                             }
                         }
@@ -91,14 +109,14 @@ pub fn Buckets() -> Element {
                         }
                     }
                     GithubStarAction {},
-                    BucketsTable { accounts: accounts.read().clone(), selected_account: selected_account.clone(), show_modal: show_modal.clone(), account_to_delete: account_to_delete.clone()}
+                    BucketsTable { buckets: buckets.read().clone(), selected_bucket: selected_bucket.clone(), show_modal: show_modal.clone(), bucket_to_delete: bucket_to_delete.clone()}
                 }
             }
     )
 }
 
 #[component]
-fn BucketsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account>>, show_modal: Signal<bool>, account_to_delete: Signal<Option<Account>>) -> Element {
+fn BucketsTable(buckets: Vec<Bucket>, selected_bucket: Signal<Option<Bucket>>, show_modal: Signal<bool>, bucket_to_delete: Signal<Option<Bucket>>) -> Element {
     rsx! {
     div { class: "w-full overflow-hidden rounded-lg shadow-xs",
         div { class: "w-full overflow-x-auto",
@@ -107,19 +125,15 @@ fn BucketsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account>
                     tr {
                         class: "text-xs font-semibold tracking-wide text-left text-gray-500 uppercase border-b dark:border-gray-700 bg-gray-50 dark:text-gray-400 dark:bg-gray-800",
                         th { class: "px-4 py-3", "Name" }
-                        th { class: "px-4 py-3", "Access Key" }
-                        th { class: "px-4 py-3", "Secret Key" }
                         th { class: "px-4 py-3", "Region" }
-                        th { class: "px-4 py-3", "Last Accessed" }
-                        th { class: "px-4 py-3", "Default?" }
                         th { class: "px-4 py-3", "Actions" }
                     }
                 }
                 tbody { class: "bg-white divide-y dark:divide-gray-700 dark:bg-gray-800",
-                    {accounts.into_iter().map(|acc| {
-                        let acc_for_edit = acc.clone();
-                        let acc_for_delete = acc.clone();
-                        let mut selected_account = selected_account.clone();
+                    {buckets.into_iter().map(|bck| {
+                        let bck_for_edit = bck.clone();
+                        let bck_for_delete = bck.clone();
+                        let mut selected_bucket= selected_bucket.clone();
                         let mut show_modal = show_modal.clone();
                         rsx!(
                         tr { class: "text-gray-700 dark:text-gray-400",
@@ -135,36 +149,19 @@ fn BucketsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account>
                                             div { class: "absolute inset-0 rounded-full shadow-inner", aria_hidden: "true" }
                                         }
                                         div {
-                                            p { class: "font-semibold", "{acc.name}" }
-                                            p { class: "text-xs text-gray-600 dark:text-gray-400", "{acc.description}" }
+                                            p { class: "font-semibold", "{bck.name}" }
                                         }
                                     }
                                 }
-                            td { class: "px-4 py-3 text-sm", "{acc.access_key}" }
-                            td { class: "px-4 py-3 text-xs",
-                                span {
-                                    class: "px-2 py-1 font-semibold leading-tight text-green-700 bg-green-100 rounded-full dark:bg-green-700 dark:text-green-100",
-                                    "{acc.masked_secret_key()}"
-                                }
-                            }
-                            td { class: "px-4 py-3 text-sm", "{acc.default_region}" }
-                            td { class: "px-4 py-3 text-sm", "-" }
-                            td { class: "px-4 py-3 text-sm",
-                                input {
-                                    r#type: "checkbox",
-                                    checked: acc.is_default,
-                                    class: "form-checkbox h-5 w-5 text-purple-600 pointer-events-none focus:outline-none",
-                                    tabindex: "-1"
-                                }
-                            }
+                            td { class: "px-4 py-3 text-sm", "{bck.region.clone().unwrap_or_default()}" }
                             td { class: "px-4 py-3 space-x-2",
                         button {
                             class: "px-2 py-1 text-sm text-white bg-blue-500 rounded hover:bg-blue-600 focus:outline-none",
                             onclick: {
-                                let mut selected_account = selected_account.clone();
+                                let mut selected_bucket= selected_bucket.clone();
                                 let mut show_modal = show_modal.clone();
                                 move |_| {
-                                    selected_account.set(Some(acc_for_edit.clone()));
+                                    selected_bucket.set(Some(bck_for_edit.clone()));
                                     show_modal.set(true);
                                 }
                             },
@@ -173,9 +170,14 @@ fn BucketsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account>
                                 button {
                                     class: "px-2 py-1 text-sm text-white bg-red-500 rounded hover:bg-red-600 focus:outline-none",
                                     onclick: {
-                                        let mut account_to_delete = account_to_delete.clone();
+                                        let mut bucket_to_delete = bucket_to_delete.clone();
+                                        // let mut refresh_buckets = refresh_buckets.clone();
+                                        let name = bck.name.clone();
                                         move |_| {
-                                            account_to_delete.set(Some(acc_for_delete.clone()));
+                                            let name = name.clone();
+                                            spawn_blocking(move || delete_bucket(&name));
+                                            bucket_to_delete.set(None);
+                                            // refresh_buckets.set(true);
                                         }
                                     },
                                     "Delete"
