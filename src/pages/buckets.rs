@@ -24,9 +24,28 @@ async fn list_buckets() -> Vec<Bucket> {
     }
 }
 
-fn delete_bucket(bucket_name: &str) -> () {
-    // TODO: Implement actual bucket deletion
-    println!("Deleting bucket with name: {}", bucket_name);
+async fn delete_bucket(bucket_name: String) -> Result<(), String> {
+    if let Some(fetcher) = S3DataFetcher::from_db_account() {
+        match fetcher.delete_data(true, None, bucket_name.clone(), false).await {
+            Ok(None) => {
+                println!("Bucket '{}' deleted successfully", bucket_name);
+                Ok(())
+            }
+            Ok(Some(error_msg)) => {
+                println!("Failed to delete bucket: {}", error_msg);
+                Err(error_msg)
+            }
+            Err(e) => {
+                let error_msg = format!("Error deleting bucket: {}", e);
+                println!("{}", error_msg);
+                Err(error_msg)
+            }
+        }
+    } else {
+        let error_msg = "No default account configured. Please set up an AWS account first.".to_string();
+        println!("{}", error_msg);
+        Err(error_msg)
+    }
 }
 
 /// Home page
@@ -79,14 +98,24 @@ pub fn Buckets() -> Element {
                             button {
                                 class: "px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700",
                                 onclick: {
+                                    let bucket_name = bck.name.clone();
                                     let mut bucket_to_delete = bucket_to_delete.clone();
                                     let mut refresh_buckets = refresh_buckets.clone();
-                                    let name = bck.name.clone();
                                     move |_| {
-                                        let name = name.clone();
-                                        spawn_blocking(move || delete_bucket(&name));
-                                        bucket_to_delete.set(None);
-                                        refresh_buckets.set(true);
+                                        let name = bucket_name.clone();
+                                        spawn(async move {
+                                            match delete_bucket(name).await {
+                                                Ok(()) => {
+                                                    bucket_to_delete.set(None);
+                                                    refresh_buckets.set(true);
+                                                }
+                                                Err(err) => {
+                                                    // TODO: Show error message to user
+                                                    println!("Delete failed: {}", err);
+                                                    bucket_to_delete.set(None);
+                                                }
+                                            }
+                                        });
                                     }
                                 }, 
                                 "Delete"
@@ -109,14 +138,14 @@ pub fn Buckets() -> Element {
                         }
                     }
                     GithubStarAction {},
-                    BucketsTable { buckets: buckets.read().clone(), selected_bucket: selected_bucket.clone(), show_modal: show_modal.clone(), bucket_to_delete: bucket_to_delete.clone()}
+                    BucketsTable { buckets: buckets.read().clone(), selected_bucket: selected_bucket.clone(), show_modal: show_modal.clone(), bucket_to_delete: bucket_to_delete.clone(), refresh_buckets: refresh_buckets.clone()}
                 }
             }
     )
 }
 
 #[component]
-fn BucketsTable(buckets: Vec<Bucket>, selected_bucket: Signal<Option<Bucket>>, show_modal: Signal<bool>, bucket_to_delete: Signal<Option<Bucket>>) -> Element {
+fn BucketsTable(buckets: Vec<Bucket>, selected_bucket: Signal<Option<Bucket>>, show_modal: Signal<bool>, bucket_to_delete: Signal<Option<Bucket>>, refresh_buckets: Signal<bool>) -> Element {
     rsx! {
     div { class: "w-full overflow-hidden rounded-lg shadow-xs",
         div { class: "w-full overflow-x-auto",
@@ -171,13 +200,8 @@ fn BucketsTable(buckets: Vec<Bucket>, selected_bucket: Signal<Option<Bucket>>, s
                                     class: "px-2 py-1 text-sm text-white bg-red-500 rounded hover:bg-red-600 focus:outline-none",
                                     onclick: {
                                         let mut bucket_to_delete = bucket_to_delete.clone();
-                                        // let mut refresh_buckets = refresh_buckets.clone();
-                                        let name = bck.name.clone();
                                         move |_| {
-                                            let name = name.clone();
-                                            spawn_blocking(move || delete_bucket(&name));
-                                            bucket_to_delete.set(None);
-                                            // refresh_buckets.set(true);
+                                            bucket_to_delete.set(Some(bck_for_delete.clone()));
                                         }
                                     },
                                     "Delete"
