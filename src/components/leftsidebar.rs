@@ -3,16 +3,24 @@ use crate::Route;
 
 #[component]
 pub fn LeftSidebar() -> Element {
+    let route = use_route::<Route>();
+    
     rsx!(
     ul { class: "mt-6",
         li { class: "relative px-6 py-3",
-            span {
-                class: "absolute inset-y-0 left-0 w-1 bg-purple-600 rounded-tr-lg rounded-br-lg",
-                aria_hidden: "true"
+            if matches!(route, Route::Dashboard {}) {
+                span {
+                    class: "absolute inset-y-0 left-0 w-1 bg-purple-600 rounded-tr-lg rounded-br-lg",
+                    aria_hidden: "true"
+                }
             }
             Link {
                 to: Route::Dashboard {},
-                class: "inline-flex items-center w-full text-sm font-semibold text-gray-800 transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200 dark:text-gray-100",
+                class: if matches!(route, Route::Dashboard {}) {
+                    "inline-flex items-center w-full text-sm font-semibold text-gray-800 transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200 dark:text-gray-100"
+                } else {
+                    "inline-flex items-center w-full text-sm font-semibold transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200"
+                },
                 svg {
                     class: "w-5 h-5",
                     fill: "none",
@@ -31,7 +39,19 @@ pub fn LeftSidebar() -> Element {
     },
         ul {
         li { class: "relative px-6 py-3",
-            Link { to: Route::Buckets {}, class: "inline-flex items-center w-full text-sm font-semibold transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200",
+            if matches!(route, Route::Buckets {}) {
+                span {
+                    class: "absolute inset-y-0 left-0 w-1 bg-purple-600 rounded-tr-lg rounded-br-lg",
+                    aria_hidden: "true"
+                }
+            }
+            Link { 
+                to: Route::Buckets {}, 
+                class: if matches!(route, Route::Buckets {}) {
+                    "inline-flex items-center w-full text-sm font-semibold text-gray-800 transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200 dark:text-gray-100"
+                } else {
+                    "inline-flex items-center w-full text-sm font-semibold transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200"
+                },
                 svg {
                     class: "w-5 h-5", fill: "none",
                     stroke_linecap: "round", stroke_linejoin: "round", stroke_width: "2",
@@ -76,7 +96,19 @@ pub fn LeftSidebar() -> Element {
             }
         }
         li { class: "relative px-6 py-3",
-            Link { to: Route::Accounts {}, class: "inline-flex items-center w-full text-sm font-semibold transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200",
+            if matches!(route, Route::Accounts {}) {
+                span {
+                    class: "absolute inset-y-0 left-0 w-1 bg-purple-600 rounded-tr-lg rounded-br-lg",
+                    aria_hidden: "true"
+                }
+            }
+            Link { 
+                to: Route::Accounts {}, 
+                class: if matches!(route, Route::Accounts {}) {
+                    "inline-flex items-center w-full text-sm font-semibold text-gray-800 transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200 dark:text-gray-100"
+                } else {
+                    "inline-flex items-center w-full text-sm font-semibold transition-colors duration-150 hover:text-gray-800 dark:hover:text-gray-200"
+                },
                 svg {
                     class: "w-5 h-5", fill: "none",
                     stroke_linecap: "round", stroke_linejoin: "round", stroke_width: "2",
