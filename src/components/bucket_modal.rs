@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use crate::utils::DB;
 use tokio::task::spawn_blocking;
 use crate::model::bucket::Bucket;
+use crate::services::s3_data_fetcher::S3DataFetcher;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct BucketModalProps {
@@ -12,8 +13,28 @@ pub struct BucketModalProps {
     refresh_buckets: Signal<bool>,
 }
 
-async fn save_bucket(name: &str, region: &str) {
-    println!("Saving bucket with name: {} and region: {}", name, region);
+async fn save_bucket(name: &str, region: &str) -> Result<(), String> {
+    if let Some(fetcher) = S3DataFetcher::from_db_account() {
+        match fetcher.create_bucket(name.to_string(), region.to_string()).await {
+            Ok(None) => {
+                println!("Bucket '{}' created successfully in region '{}'", name, region);
+                Ok(())
+            }
+            Ok(Some(error_msg)) => {
+                println!("Failed to create bucket: {}", error_msg);
+                Err(error_msg)
+            }
+            Err(e) => {
+                let error_msg = format!("Error creating bucket: {}", e);
+                println!("{}", error_msg);
+                Err(error_msg)
+            }
+        }
+    } else {
+        let error_msg = "No default account configured. Please set up an AWS account first.".to_string();
+        println!("{}", error_msg);
+        Err(error_msg)
+    }
 }
 
 #[component]
@@ -21,6 +42,9 @@ pub fn BucketModal(mut props: BucketModalProps) -> Element {
     let bucket = props.selected_bucket.read().clone();
     let mut bucket_name = use_signal(|| bucket.as_ref().map(|a| a.name.clone()).unwrap_or_default());
     let mut region = use_signal(|| bucket.as_ref().map(|a| a.region.as_ref().map(|r| r.clone()).unwrap_or_default()).unwrap_or_default());
+    let mut error_message = use_signal(|| None as Option<String>);
+    let mut is_saving = use_signal(|| false);
+    
     rsx! {
         div {
             class: "fixed inset-0 z-50 w-screen h-screen flex items-center justify-center bg-black bg-opacity-50",
@@ -31,22 +55,50 @@ pub fn BucketModal(mut props: BucketModalProps) -> Element {
 
                 h2 { class: "text-xl font-bold mb-4 text-gray-900 dark:text-gray-100", if bucket.is_some() { "Edit Bucket" } else { "New Bucket" } }
 
+                if let Some(error) = error_message.read().as_ref() {
+                    div {
+                        class: "mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded",
+                        "{error}"
+                    }
+                }
+
                 form {
                     class: "space-y-4",
                     onsubmit: move |evt| {
                         evt.prevent_default();
-
+                        
                         let name = bucket_name.read().clone();
                         let region = region.read().clone();
+                        
+                        if name.trim().is_empty() {
+                            error_message.set(Some("Bucket name is required".to_string()));
+                            return;
+                        }
+                        
+                        if region.trim().is_empty() {
+                            error_message.set(Some("Region is required".to_string()));
+                            return;
+                        }
 
-                        spawn_blocking(move || {
-                            save_bucket(&name, &region);
+                        error_message.set(None);
+                        is_saving.set(true);
+                        
+                        spawn(async move {
+                            match save_bucket(&name, &region).await {
+                                Ok(()) => {
+                                    props.refresh_buckets.set(true);
+                                    props.show_modal.set(false);
+                                    is_saving.set(false);
+                                }
+                                Err(err) => {
+                                    error_message.set(Some(err));
+                                    is_saving.set(false);
+                                }
+                            }
                         });
-                        props.refresh_buckets.set(true);
-                        props.show_modal.set(false);
                     },
                     div {
-                        label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300", "Account Name" }
+                        label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300", "Bucket Name" }
                         input {
                             class: "w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white",
                             r#type: "text",
@@ -56,7 +108,7 @@ pub fn BucketModal(mut props: BucketModalProps) -> Element {
                         }
                     }
                     div {
-                        label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300", "Default Region" }
+                        label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300", "Region" }
                         select {
                             class: "w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-white",
                             value: "{region}",
@@ -77,9 +129,10 @@ pub fn BucketModal(mut props: BucketModalProps) -> Element {
                     }
                     div {
                         button {
-                            class: "bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700",
+                            class: "bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed",
                             r#type: "submit",
-                            "Save"
+                            disabled: *is_saving.read(),
+                            if *is_saving.read() { "Creating..." } else { "Save" }
                         }
                     }
                 }
