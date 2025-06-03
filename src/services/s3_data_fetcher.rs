@@ -190,26 +190,42 @@ impl S3DataFetcher {
         }
     }
 
-    async fn get_bucket_location(&self, bucket: &str) -> eyre::Result<String> {
+    pub async fn get_bucket_location(&self, bucket: &str) -> eyre::Result<String> {
         let default_region = self.default_region.clone();
         let account = CURRENT_ACCOUNT.read().clone();
         let client = self.get_s3_client_with_account(account).await;
+        
+        println!("🔍 Getting location for bucket: '{}'", bucket);
+        println!("🌍 Default region: '{}'", default_region);
+        
         let head_obj = client.get_bucket_location().bucket(bucket).send().await?;
-        let location = head_obj
-            .location_constraint()
-            .map(|lc| lc.to_string())
-            .unwrap_or_else(|| default_region.to_string());
+        
+        println!("📡 AWS response for bucket '{}': {:?}", bucket, head_obj);
+        
+        let location_constraint = head_obj.location_constraint();
+        println!("🗺️  Location constraint for bucket '{}': {:?}", bucket, location_constraint);
+        
+        let location = location_constraint
+            .map(|lc| {
+                let region_str = lc.to_string();
+                println!("🔄 Converted location constraint to string: '{}'", region_str);
+                region_str
+            })
+            .unwrap_or_else(|| {
+                println!("⚠️  No location constraint found, using default region: '{}'", default_region);
+                default_region.to_string()
+            });
+            
+        println!("✅ Final region for bucket '{}': '{}'", bucket, location);
         Ok(location)
     }
 
     // Example async method to fetch data from an external service
     pub async fn list_buckets(&self) -> eyre::Result<Vec<S3DataItem>> {
-        println!("list_buckets");
         let account = CURRENT_ACCOUNT.read().clone();
         let client = self.get_s3_client_with_account(account).await;
         let mut fetched_data: Vec<S3DataItem> = vec![];
         if let Ok(res) = client.list_buckets().send().await {
-            println!("res: {:?}", res);
             fetched_data = res.buckets.as_ref().map_or_else(
                 Vec::new, // In case there is no buckets field (it's None), return an empty Vec
                 |buckets| {

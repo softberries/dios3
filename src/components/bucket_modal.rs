@@ -9,7 +9,6 @@ use crate::services::s3_data_fetcher::S3DataFetcher;
 #[derive(Props, Clone, PartialEq)]
 pub struct BucketModalProps {
     show_modal: Signal<bool>,
-    selected_bucket: Signal<Option<Bucket>>,
     refresh_buckets: Signal<bool>,
 }
 
@@ -39,9 +38,8 @@ async fn save_bucket(name: &str, region: &str) -> Result<(), String> {
 
 #[component]
 pub fn BucketModal(mut props: BucketModalProps) -> Element {
-    let bucket = props.selected_bucket.read().clone();
-    let mut bucket_name = use_signal(|| bucket.as_ref().map(|a| a.name.clone()).unwrap_or_default());
-    let mut region = use_signal(|| bucket.as_ref().map(|a| a.region.as_ref().map(|r| r.clone()).unwrap_or_default()).unwrap_or_default());
+    let mut bucket_name = use_signal(|| String::new());
+    let mut region = use_signal(|| String::new());
     let mut error_message = use_signal(|| None as Option<String>);
     let mut is_saving = use_signal(|| false);
     
@@ -53,7 +51,7 @@ pub fn BucketModal(mut props: BucketModalProps) -> Element {
                 class: "bg-white dark:bg-gray-800 rounded-lg p-6 shadow-xl w-full max-w-md",
                 onclick: move |e| e.stop_propagation(), // prevent click from closing the modal
 
-                h2 { class: "text-xl font-bold mb-4 text-gray-900 dark:text-gray-100", if bucket.is_some() { "Edit Bucket" } else { "New Bucket" } }
+                h2 { class: "text-xl font-bold mb-4 text-gray-900 dark:text-gray-100", "New Bucket" }
 
                 if let Some(error) = error_message.read().as_ref() {
                     div {
@@ -88,7 +86,6 @@ pub fn BucketModal(mut props: BucketModalProps) -> Element {
                                 Ok(()) => {
                                     props.refresh_buckets.set(true);
                                     props.show_modal.set(false);
-                                    is_saving.set(false);
                                 }
                                 Err(err) => {
                                     error_message.set(Some(err));
@@ -132,7 +129,7 @@ pub fn BucketModal(mut props: BucketModalProps) -> Element {
                             class: "bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed",
                             r#type: "submit",
                             disabled: *is_saving.read(),
-                            if *is_saving.read() { "Creating..." } else { "Save" }
+                            if *is_saving.read() { "Creating..." } else { "Create Bucket" }
                         }
                     }
                 }

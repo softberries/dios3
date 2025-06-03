@@ -12,15 +12,61 @@ const S3_IMG: Asset = asset!("/assets/aws_logo.png");
 
 async fn list_buckets() -> Vec<Bucket> {
     if let Some(fetcher) = S3DataFetcher::from_db_account() {
-        match fetcher.list_current_location(None, None).await {
-            Ok(buckets) => buckets.iter().map(|b| -> Bucket { 
-                let region_clone = b.region.as_ref().map(|r| r.to_string());
-                Bucket { name: b.name.clone(), region: region_clone } 
-            }).collect(),
-            Err(_) => Vec::new(),
+        match fetcher.list_buckets().await {
+            Ok(s3_buckets) => {
+                // Return buckets immediately without regions
+                s3_buckets.iter().map(|s3_bucket| {
+                    Bucket {
+                        name: s3_bucket.name.clone(),
+                        region: None, // Will be populated asynchronously
+                    }
+                }).collect()
+            }
+            Err(e) => {
+                println!("Failed to list buckets: {}", e);
+                Vec::new()
+            }
         }
     } else {
+        println!("No S3DataFetcher available - no default account configured");
         Vec::new()
+    }
+}
+
+async fn fetch_bucket_regions(buckets_signal: Signal<Vec<Bucket>>) {
+    if let Some(fetcher) = S3DataFetcher::from_db_account() {
+        let current_buckets = buckets_signal.read().clone();
+        
+        for bucket in current_buckets.iter() {
+            if bucket.region.is_none() {
+                let bucket_name = bucket.name.clone();
+                let fetcher_clone = fetcher.clone();
+                let mut buckets_signal_clone = buckets_signal.clone();
+                
+                spawn(async move {
+                    match fetcher_clone.get_bucket_location(&bucket_name).await {
+                        Ok(region) => {
+                            println!("Got region '{}' for bucket '{}'", region, bucket_name);
+                            let mut current_buckets = buckets_signal_clone.read().clone();
+                            // Find bucket by name instead of using index
+                            if let Some(bucket_to_update) = current_buckets.iter_mut().find(|b| b.name == bucket_name) {
+                                bucket_to_update.region = Some(region);
+                                buckets_signal_clone.set(current_buckets);
+                            }
+                        }
+                        Err(e) => {
+                            println!("Failed to get region for bucket '{}': {}", bucket_name, e);
+                            let mut current_buckets = buckets_signal_clone.read().clone();
+                            // Find bucket by name instead of using index
+                            if let Some(bucket_to_update) = current_buckets.iter_mut().find(|b| b.name == bucket_name) {
+                                bucket_to_update.region = Some("Error".to_string());
+                                buckets_signal_clone.set(current_buckets);
+                            }
+                        }
+                    }
+                });
+            }
+        }
     }
 }
 
@@ -53,25 +99,28 @@ async fn delete_bucket(bucket_name: String) -> Result<(), String> {
 pub fn Buckets() -> Element {
     let mut show_modal = use_signal(|| false);
     let buckets = use_signal(|| Vec::<Bucket>::new());
-    let selected_bucket = use_signal(|| None as Option<Bucket>);
     let mut refresh_buckets = use_signal(|| false);
     let mut bucket_to_delete = use_signal(|| None as Option<Bucket>);
 
     use_effect(move || {
-        let mut buckets = buckets.clone();
+        let mut buckets_signal = buckets.clone();
         spawn(async move {
             let data = list_buckets().await;
-            buckets.set(data);
+            buckets_signal.set(data);
+            // Fetch regions asynchronously after buckets are loaded
+            fetch_bucket_regions(buckets_signal).await;
         });
     });
 
     use_effect(move || {
         if *refresh_buckets.read() {
-            let mut buckets = buckets.clone();
+            let mut buckets_signal = buckets.clone();
             spawn(async move {
                 let data = list_buckets().await;
-                buckets.set(data);
+                buckets_signal.set(data);
                 refresh_buckets.set(false);
+                // Fetch regions asynchronously after buckets are refreshed
+                fetch_bucket_regions(buckets_signal).await;
             });
         }
     });
@@ -80,7 +129,6 @@ pub fn Buckets() -> Element {
         if *show_modal.read() {
                     BucketModal {
                         show_modal: show_modal.clone(),
-                        selected_bucket: selected_bucket.clone(),
                         refresh_buckets: refresh_buckets.clone(),
                     }
                 },
@@ -138,14 +186,14 @@ pub fn Buckets() -> Element {
                         }
                     }
                     GithubStarAction {},
-                    BucketsTable { buckets: buckets.read().clone(), selected_bucket: selected_bucket.clone(), show_modal: show_modal.clone(), bucket_to_delete: bucket_to_delete.clone(), refresh_buckets: refresh_buckets.clone()}
+                    BucketsTable { buckets: buckets.read().clone(), bucket_to_delete: bucket_to_delete.clone(), refresh_buckets: refresh_buckets.clone()}
                 }
             }
     )
 }
 
 #[component]
-fn BucketsTable(buckets: Vec<Bucket>, selected_bucket: Signal<Option<Bucket>>, show_modal: Signal<bool>, bucket_to_delete: Signal<Option<Bucket>>, refresh_buckets: Signal<bool>) -> Element {
+fn BucketsTable(buckets: Vec<Bucket>, bucket_to_delete: Signal<Option<Bucket>>, refresh_buckets: Signal<bool>) -> Element {
     rsx! {
     div { class: "w-full overflow-hidden rounded-lg shadow-xs",
         div { class: "w-full overflow-x-auto",
@@ -160,10 +208,7 @@ fn BucketsTable(buckets: Vec<Bucket>, selected_bucket: Signal<Option<Bucket>>, s
                 }
                 tbody { class: "bg-white divide-y dark:divide-gray-700 dark:bg-gray-800",
                     {buckets.into_iter().map(|bck| {
-                        let bck_for_edit = bck.clone();
                         let bck_for_delete = bck.clone();
-                        let mut selected_bucket= selected_bucket.clone();
-                        let mut show_modal = show_modal.clone();
                         rsx!(
                         tr { class: "text-gray-700 dark:text-gray-400",
                                 td { class: "px-4 py-3",
@@ -182,20 +227,35 @@ fn BucketsTable(buckets: Vec<Bucket>, selected_bucket: Signal<Option<Bucket>>, s
                                         }
                                     }
                                 }
-                            td { class: "px-4 py-3 text-sm", "{bck.region.clone().unwrap_or_default()}" }
-                            td { class: "px-4 py-3 space-x-2",
-                        button {
-                            class: "px-2 py-1 text-sm text-white bg-blue-500 rounded hover:bg-blue-600 focus:outline-none",
-                            onclick: {
-                                let mut selected_bucket= selected_bucket.clone();
-                                let mut show_modal = show_modal.clone();
-                                move |_| {
-                                    selected_bucket.set(Some(bck_for_edit.clone()));
-                                    show_modal.set(true);
+                            td { class: "px-4 py-3 text-sm", 
+                                if let Some(region) = &bck.region {
+                                    "{region}"
+                                } else {
+                                    span { 
+                                        class: "inline-flex items-center text-gray-500",
+                                        svg {
+                                            class: "animate-spin -ml-1 mr-2 h-4 w-4 text-gray-500",
+                                            fill: "none",
+                                            view_box: "0 0 24 24",
+                                            circle {
+                                                class: "opacity-25",
+                                                cx: "12",
+                                                cy: "12",
+                                                r: "10",
+                                                stroke: "currentColor",
+                                                stroke_width: "4"
+                                            }
+                                            path {
+                                                class: "opacity-75",
+                                                fill: "currentColor",
+                                                d: "M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                            }
+                                        }
+                                        "Loading..."
+                                    }
                                 }
-                            },
-                            "Edit"
-                        }
+                            }
+                            td { class: "px-4 py-3 space-x-2",
                                 button {
                                     class: "px-2 py-1 text-sm text-white bg-red-500 rounded hover:bg-red-600 focus:outline-none",
                                     onclick: {
