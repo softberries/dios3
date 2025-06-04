@@ -183,10 +183,10 @@ impl S3DataFetcher {
     ) -> eyre::Result<Vec<S3DataItem>> {
         println!("list_current_location");
         match (bucket, prefix) {
-            (None, None) => self.list_buckets().await,
+            (None, None) => self.list_all_buckets().await,
             (Some(bucket), None) => self.list_objects(bucket.as_str(), None).await,
             (Some(bucket), Some(prefix)) => self.list_objects(bucket.as_str(), Some(prefix)).await,
-            _ => self.list_buckets().await,
+            _ => self.list_all_buckets().await,
         }
     }
 
@@ -220,11 +220,12 @@ impl S3DataFetcher {
         Ok(location)
     }
 
-    // Example async method to fetch data from an external service
-    pub async fn list_buckets(&self) -> eyre::Result<Vec<S3DataItem>> {
+    // Example async method to fetch data from an external service with pagination
+    pub async fn list_buckets(&self, page: Option<usize>, page_size: Option<usize>) -> eyre::Result<(Vec<S3DataItem>, usize)> {
         let account = CURRENT_ACCOUNT.read().clone();
         let client = self.get_s3_client_with_account(account).await;
         let mut fetched_data: Vec<S3DataItem> = vec![];
+        
         if let Ok(res) = client.list_buckets().send().await {
             fetched_data = res.buckets.as_ref().map_or_else(
                 Vec::new, // In case there is no buckets field (it's None), return an empty Vec
@@ -253,7 +254,28 @@ impl S3DataFetcher {
                 },
             )
         }
-        Ok(fetched_data)
+
+        // Apply client-side pagination
+        let total_count = fetched_data.len();
+        
+        if let (Some(page_num), Some(size)) = (page, page_size) {
+            let start_index = page_num * size;
+            let end_index = std::cmp::min(start_index + size, total_count);
+            
+            if start_index < total_count {
+                fetched_data = fetched_data[start_index..end_index].to_vec();
+            } else {
+                fetched_data = vec![]; // Page beyond available data
+            }
+        }
+        
+        Ok((fetched_data, total_count))
+    }
+
+    // Convenience method to get all buckets (maintains backward compatibility)
+    pub async fn list_all_buckets(&self) -> eyre::Result<Vec<S3DataItem>> {
+        let (buckets, _) = self.list_buckets(None, None).await?;
+        Ok(buckets)
     }
 
     pub async fn create_bucket(

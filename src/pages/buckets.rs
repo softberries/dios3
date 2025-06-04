@@ -10,26 +10,27 @@ use crate::utils::CURRENT_ACCOUNT;
 
 const BUCKET_ICON: Asset = asset!("/assets/bucket_icon.png");
 
-async fn list_buckets() -> Vec<Bucket> {
+async fn list_buckets(page: Option<usize>, page_size: Option<usize>) -> (Vec<Bucket>, usize) {
     if let Some(fetcher) = S3DataFetcher::from_db_account() {
-        match fetcher.list_buckets().await {
-            Ok(s3_buckets) => {
+        match fetcher.list_buckets(page, page_size).await {
+            Ok((s3_buckets, total_count)) => {
                 // Return buckets immediately without regions
-                s3_buckets.iter().map(|s3_bucket| {
+                let buckets = s3_buckets.iter().map(|s3_bucket| {
                     Bucket {
                         name: s3_bucket.name.clone(),
                         region: None, // Will be populated asynchronously
                     }
-                }).collect()
+                }).collect();
+                (buckets, total_count)
             }
             Err(e) => {
                 println!("Failed to list buckets: {}", e);
-                Vec::new()
+                (Vec::new(), 0)
             }
         }
     } else {
         println!("No S3DataFetcher available - no default account configured");
-        Vec::new()
+        (Vec::new(), 0)
     }
 }
 
@@ -101,12 +102,18 @@ pub fn Buckets() -> Element {
     let buckets = use_signal(|| Vec::<Bucket>::new());
     let mut refresh_buckets = use_signal(|| false);
     let mut bucket_to_delete = use_signal(|| None as Option<Bucket>);
+    let mut current_page = use_signal(|| 0usize);
+    let mut page_size = use_signal(|| 20usize);
+    let mut total_buckets = use_signal(|| 0usize);
 
     use_effect(move || {
         let mut buckets_signal = buckets.clone();
+        let page = current_page.read().clone();
+        let size = page_size.read().clone();
         spawn(async move {
-            let data = list_buckets().await;
-            buckets_signal.set(data);
+            let (bucket_data, total) = list_buckets(Some(page), Some(size)).await;
+            buckets_signal.set(bucket_data);
+            total_buckets.set(total);
             // Fetch regions asynchronously after buckets are loaded
             fetch_bucket_regions(buckets_signal).await;
         });
@@ -115,14 +122,30 @@ pub fn Buckets() -> Element {
     use_effect(move || {
         if *refresh_buckets.read() {
             let mut buckets_signal = buckets.clone();
+            let page = current_page.read().clone();
+            let size = page_size.read().clone();
             spawn(async move {
-                let data = list_buckets().await;
-                buckets_signal.set(data);
+                let (bucket_data, total) = list_buckets(Some(page), Some(size)).await;
+                buckets_signal.set(bucket_data);
+                total_buckets.set(total);
                 refresh_buckets.set(false);
                 // Fetch regions asynchronously after buckets are refreshed
                 fetch_bucket_regions(buckets_signal).await;
             });
         }
+    });
+
+    // Effect to reload buckets when page or page_size changes
+    use_effect(move || {
+        let mut buckets_signal = buckets.clone();
+        let page = current_page.read().clone();
+        let size = page_size.read().clone();
+        spawn(async move {
+            let (bucket_data, total) = list_buckets(Some(page), Some(size)).await;
+            buckets_signal.set(bucket_data);
+            total_buckets.set(total);
+            fetch_bucket_regions(buckets_signal).await;
+        });
     });
 
     rsx!(
@@ -179,21 +202,47 @@ pub fn Buckets() -> Element {
                             class: "text-2xl font-semibold text-gray-700 dark:text-gray-200",
                             "Buckets"
                         },
-                        button {
-                            class: "px-4 py-2 mr-4 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 focus:outline-none focus:ring",
-                            onclick: move |_| show_modal.set(true),
-                            "New Bucket"
+                        div { class: "flex items-center space-x-4",
+                            div { class: "flex items-center space-x-2",
+                                label { class: "text-sm text-gray-600 dark:text-gray-400", "Page size:" }
+                                select {
+                                    class: "px-3 py-1 text-sm border rounded-md dark:bg-gray-700 dark:text-white",
+                                    value: "{page_size}",
+                                    onchange: move |e| {
+                                        if let Ok(new_size) = e.value().parse::<usize>() {
+                                            page_size.set(new_size);
+                                            current_page.set(0); // Reset to first page
+                                        }
+                                    },
+                                    option { value: "10", "10" }
+                                    option { value: "20", "20" }
+                                    option { value: "50", "50" }
+                                    option { value: "100", "100" }
+                                }
+                            }
+                            button {
+                                class: "px-4 py-2 ml-6 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 focus:outline-none focus:ring",
+                                onclick: move |_| show_modal.set(true),
+                                "New Bucket"
+                            }
                         }
                     }
                     GithubStarAction {},
-                    BucketsTable { buckets: buckets.read().clone(), bucket_to_delete: bucket_to_delete.clone(), refresh_buckets: refresh_buckets.clone()}
+                    BucketsTable { 
+                        buckets: buckets.read().clone(), 
+                        bucket_to_delete: bucket_to_delete.clone(), 
+                        refresh_buckets: refresh_buckets.clone(),
+                        current_page: current_page.clone(),
+                        page_size: page_size.clone(),
+                        total_buckets: total_buckets.clone(),
+                    }
                 }
             }
     )
 }
 
 #[component]
-fn BucketsTable(buckets: Vec<Bucket>, bucket_to_delete: Signal<Option<Bucket>>, refresh_buckets: Signal<bool>) -> Element {
+fn BucketsTable(buckets: Vec<Bucket>, bucket_to_delete: Signal<Option<Bucket>>, refresh_buckets: Signal<bool>, current_page: Signal<usize>, page_size: Signal<usize>, total_buckets: Signal<usize>) -> Element {
     rsx! {
     div { class: "w-full overflow-hidden rounded-lg shadow-xs",
         div { class: "w-full overflow-x-auto",
@@ -276,15 +325,31 @@ fn BucketsTable(buckets: Vec<Bucket>, bucket_to_delete: Signal<Option<Bucket>>, 
         // Pagination
         div {
             class: "grid px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase border-t dark:border-gray-700 bg-gray-50 sm:grid-cols-9 dark:text-gray-400 dark:bg-gray-800",
-            span { class: "flex items-center col-span-3", "Showing 21-30 of 100" }
+            span { class: "flex items-center col-span-3", 
+                {
+                    let current = *current_page.read();
+                    let size = *page_size.read();
+                    let total = *total_buckets.read();
+                    let start = if total > 0 { current * size + 1 } else { 0 };
+                    let end = std::cmp::min((current + 1) * size, total);
+                    format!("Showing {}-{} of {}", start, end, total)
+                }
+            }
             span { class: "col-span-2" }
             span { class: "flex col-span-4 mt-2 sm:mt-auto sm:justify-end",
                 nav { aria_label: "Table navigation",
                     ul { class: "inline-flex items-center",
                         li {
                             button {
-                                class: "px-3 py-1 rounded-md rounded-l-lg focus:outline-none focus:shadow-outline-purple",
+                                class: "px-3 py-1 rounded-md rounded-l-lg focus:outline-none focus:shadow-outline-purple disabled:opacity-50 disabled:cursor-not-allowed",
                                 aria_label: "Previous",
+                                disabled: *current_page.read() == 0,
+                                onclick: move |_| {
+                                    let current = *current_page.read();
+                                    if current > 0 {
+                                        current_page.set(current - 1);
+                                    }
+                                },
                                 svg {
                                     class: "w-4 h-4 fill-current",
                                     view_box: "0 0 20 20",
@@ -296,22 +361,31 @@ fn BucketsTable(buckets: Vec<Bucket>, bucket_to_delete: Signal<Option<Bucket>>, 
                                 }
                             }
                         }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "1" } }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "2" } }
-                        li {
-                            button {
-                                class: "px-3 py-1 text-white transition-colors duration-150 bg-purple-600 border border-r-0 border-purple-600 rounded-md focus:outline-none focus:shadow-outline-purple",
-                                "3"
-                            }
+                        li { 
+                            span { class: "px-3 py-1", 
+                                "Page {current_page.read().clone() + 1} of {((total_buckets.read().clone() as f64 / page_size.read().clone() as f64).ceil() as usize).max(1)}"
+                            } 
                         }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "4" } }
-                        li { span { class: "px-3 py-1", "..." } }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "8" } }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "9" } }
                         li {
                             button {
-                                class: "px-3 py-1 rounded-md rounded-r-lg focus:outline-none focus:shadow-outline-purple",
+                                class: "px-3 py-1 rounded-md rounded-r-lg focus:outline-none focus:shadow-outline-purple disabled:opacity-50 disabled:cursor-not-allowed",
                                 aria_label: "Next",
+                                disabled: {
+                                    let current = *current_page.read();
+                                    let size = *page_size.read();
+                                    let total = *total_buckets.read();
+                                    let max_page = if total > 0 { (total - 1) / size } else { 0 };
+                                    current >= max_page
+                                },
+                                onclick: move |_| {
+                                    let current = *current_page.read();
+                                    let size = *page_size.read();
+                                    let total = *total_buckets.read();
+                                    let max_page = if total > 0 { (total - 1) / size } else { 0 };
+                                    if current < max_page {
+                                        current_page.set(current + 1);
+                                    }
+                                },
                                 svg {
                                     class: "w-4 h-4 fill-current",
                                     view_box: "0 0 20 20",
