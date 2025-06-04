@@ -8,7 +8,7 @@ use crate::model::bucket::Bucket;
 use crate::services::s3_data_fetcher::S3DataFetcher;
 use crate::utils::CURRENT_ACCOUNT;
 
-const S3_IMG: Asset = asset!("/assets/aws_logo.png");
+const BUCKET_ICON: Asset = asset!("/assets/bucket_icon.png");
 
 async fn list_buckets() -> Vec<Bucket> {
     if let Some(fetcher) = S3DataFetcher::from_db_account() {
@@ -216,7 +216,7 @@ fn BucketsTable(buckets: Vec<Bucket>, bucket_to_delete: Signal<Option<Bucket>>, 
                                         div { class: "relative hidden w-8 h-8 mr-3 rounded-full md:block",
                                             img {
                                                 class: "object-cover w-full h-full rounded-full",
-                                                src: "{S3_IMG}",
+                                                src: "{BUCKET_ICON}",
                                                 alt: "",
                                                 loading: "lazy"
                                             }
