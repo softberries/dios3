@@ -361,10 +361,46 @@ fn BucketsTable(buckets: Vec<Bucket>, bucket_to_delete: Signal<Option<Bucket>>, 
                                 }
                             }
                         }
-                        li { 
-                            span { class: "px-3 py-1", 
-                                "Page {current_page.read().clone() + 1} of {((total_buckets.read().clone() as f64 / page_size.read().clone() as f64).ceil() as usize).max(1)}"
-                            } 
+                        {
+                            // Calculate page numbers to display
+                            let current = *current_page.read();
+                            let size = *page_size.read();
+                            let total = *total_buckets.read();
+                            let total_pages = if total > 0 { ((total as f64) / (size as f64)).ceil() as usize } else { 1 };
+                            
+                            // Calculate start and end pages (max 7 pages)
+                            let max_visible = 7;
+                            let half_visible = max_visible / 2; // 3
+                            
+                            let (start_page, end_page) = if total_pages <= max_visible {
+                                (0, total_pages)
+                            } else if current < half_visible {
+                                (0, max_visible)
+                            } else if current >= total_pages - half_visible {
+                                (total_pages - max_visible, total_pages)
+                            } else {
+                                (current - half_visible, current + half_visible + 1)
+                            };
+                            
+                            let current_page_signal = current_page.clone();
+                            
+                            (start_page..end_page).map(move |page| {
+                                let is_current = page == current;
+                                let mut page_signal = current_page_signal.clone();
+                                rsx!(
+                                    li {
+                                        button {
+                                            class: if is_current {
+                                                "px-3 py-1 text-white transition-colors duration-150 bg-purple-600 border border-r-0 border-purple-600 rounded-md focus:outline-none focus:shadow-outline-purple"
+                                            } else {
+                                                "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple hover:bg-purple-100 dark:hover:bg-purple-900"
+                                            },
+                                            onclick: move |_| page_signal.set(page),
+                                            "{page + 1}"
+                                        }
+                                    }
+                                )
+                            })
                         }
                         li {
                             button {
