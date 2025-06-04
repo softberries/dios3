@@ -1,31 +1,57 @@
 use crate::model::account::Account;
 use crate::utils::DB;
 
-pub fn fetch_accounts() -> Vec<Account> {
+pub fn fetch_accounts_paginated(page: Option<usize>, page_size: Option<usize>) -> (Vec<Account>, usize) {
     use crate::utils::DB;
     let db = DB.lock().unwrap();
     if let Some(conn) = &*db {
-        println!("🟡 Querying accounts...");
-        let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default, default_region FROM accounts")
-            .expect("prepare failed");
-        let account_iter = stmt
-            .query_map([], |row| {
-                Ok(Account {
-                    id: row.get::<_, i64>(0)?,
-                    name: row.get::<_, String>(1)?,
-                    description: row.get::<_, String>(2)?,
-                    access_key: row.get::<_, String>(3)?,
-                    secret_key: row.get::<_, String>(4)?,
-                    is_default: row.get::<_, i64>(5).map(|e| e == 1)?,
-                    default_region: row.get::<_, String>(6)?
-                })
+        println!("🟡 Querying accounts with pagination...");
+        
+        // First get total count
+        let total_count: usize = conn.prepare("SELECT COUNT(*) FROM accounts")
+            .and_then(|mut stmt| stmt.query_row([], |row| Ok(row.get::<_, i64>(0)? as usize)))
+            .unwrap_or(0);
+        
+        // Helper function to create Account from row
+        let create_account = |row: &rusqlite::Row| -> rusqlite::Result<Account> {
+            Ok(Account {
+                id: row.get::<_, i64>(0)?,
+                name: row.get::<_, String>(1)?,
+                description: row.get::<_, String>(2)?,
+                access_key: row.get::<_, String>(3)?,
+                secret_key: row.get::<_, String>(4)?,
+                is_default: row.get::<_, i64>(5).map(|e| e == 1)?,
+                default_region: row.get::<_, String>(6)?
             })
-            .expect("Failed to query accounts");
+        };
+        
+        // Execute appropriate query
+        let accounts = if let (Some(page_num), Some(size)) = (page, page_size) {
+            let offset = page_num * size;
+            let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default, default_region FROM accounts ORDER BY id LIMIT ? OFFSET ?")
+                .expect("prepare failed");
+            stmt.query_map([size as i64, offset as i64], create_account)
+                .expect("Failed to query accounts")
+                .filter_map(Result::ok)
+                .collect()
+        } else {
+            let mut stmt = conn.prepare("SELECT id, name, description, access_key, secret_key, is_default, default_region FROM accounts ORDER BY id")
+                .expect("prepare failed");
+            stmt.query_map([], create_account)
+                .expect("Failed to query accounts")
+                .filter_map(Result::ok)
+                .collect()
+        };
 
-        account_iter.filter_map(Result::ok).collect()
+        (accounts, total_count)
     } else {
-        vec![]
+        (vec![], 0)
     }
+}
+
+pub fn fetch_accounts() -> Vec<Account> {
+    let (accounts, _) = fetch_accounts_paginated(None, None);
+    accounts
 }
 
 pub fn save_account_to_db(

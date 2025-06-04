@@ -5,10 +5,22 @@ use crate::components::{AccountCard, AccountModal, ClientsCard, ContactsCard, Gi
 use tokio::task::spawn_blocking;
 use crate::model::account::Account;
 use crate::repositories::account_repo;
-use crate::repositories::account_repo::{delete_account, fetch_accounts};
+use crate::repositories::account_repo::{delete_account, fetch_accounts, fetch_accounts_paginated};
 use crate::utils::CURRENT_ACCOUNT;
 
 const S3_IMG: Asset = asset!("/assets/aws_logo.png");
+
+async fn list_accounts(page: Option<usize>, page_size: Option<usize>) -> (Vec<Account>, usize) {
+    let result = spawn_blocking(move || fetch_accounts_paginated(page, page_size)).await;
+    match result {
+        Ok((accounts, total)) => (accounts, total),
+        Err(e) => {
+            println!("Failed to fetch accounts: {:?}", e);
+            (Vec::new(), 0)
+        }
+    }
+}
+
 /// Home page
 #[component]
 pub fn Accounts() -> Element {
@@ -17,24 +29,45 @@ pub fn Accounts() -> Element {
     let selected_account = use_signal(|| None as Option<Account>);
     let mut refresh_accounts = use_signal(|| false);
     let mut account_to_delete = use_signal(|| None as Option<Account>);
+    let mut current_page = use_signal(|| 0usize);
+    let mut page_size = use_signal(|| 20usize);
+    let mut total_accounts = use_signal(|| 0usize);
 
     use_effect(move || {
-        let mut accounts = accounts.clone();
+        let mut accounts_signal = accounts.clone();
+        let page = current_page.read().clone();
+        let size = page_size.read().clone();
         spawn(async move {
-            let data = spawn_blocking(move || fetch_accounts());
-            accounts.set(data.await.unwrap());
+            let (account_data, total) = list_accounts(Some(page), Some(size)).await;
+            accounts_signal.set(account_data);
+            total_accounts.set(total);
         });
     });
 
     use_effect(move || {
         if *refresh_accounts.read() {
-            let mut accounts = accounts.clone();
+            let mut accounts_signal = accounts.clone();
+            let page = current_page.read().clone();
+            let size = page_size.read().clone();
             spawn(async move {
-                let data = tokio::task::spawn_blocking(move || fetch_accounts()).await.unwrap();
-                accounts.set(data);
+                let (account_data, total) = list_accounts(Some(page), Some(size)).await;
+                accounts_signal.set(account_data);
+                total_accounts.set(total);
                 refresh_accounts.set(false);
             });
         }
+    });
+
+    // Effect to reload accounts when page or page_size changes
+    use_effect(move || {
+        let mut accounts_signal = accounts.clone();
+        let page = current_page.read().clone();
+        let size = page_size.read().clone();
+        spawn(async move {
+            let (account_data, total) = list_accounts(Some(page), Some(size)).await;
+            accounts_signal.set(account_data);
+            total_accounts.set(total);
+        });
     });
 
     rsx!(
@@ -83,21 +116,48 @@ pub fn Accounts() -> Element {
                             class: "text-2xl font-semibold text-gray-700 dark:text-gray-200",
                             "Accounts"
                         },
-                        button {
-                            class: "px-4 py-2 mr-4 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 focus:outline-none focus:ring",
-                            onclick: move |_| show_modal.set(true),
-                            "New Account"
+                        div { class: "flex items-center space-x-4",
+                            div { class: "flex items-center space-x-2",
+                                label { class: "text-sm text-gray-600 dark:text-gray-400", "Page size:" }
+                                select {
+                                    class: "px-3 py-1 text-sm border rounded-md dark:bg-gray-700 dark:text-white",
+                                    value: "{page_size}",
+                                    onchange: move |e| {
+                                        if let Ok(new_size) = e.value().parse::<usize>() {
+                                            page_size.set(new_size);
+                                            current_page.set(0); // Reset to first page
+                                        }
+                                    },
+                                    option { value: "10", "10" }
+                                    option { value: "20", "20" }
+                                    option { value: "50", "50" }
+                                    option { value: "100", "100" }
+                                }
+                            }
+                            button {
+                                class: "px-4 py-2 ml-6 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 focus:outline-none focus:ring",
+                                onclick: move |_| show_modal.set(true),
+                                "New Account"
+                            }
                         }
                     }
                     GithubStarAction {},
-                    AccountsTable { accounts: accounts.read().clone(), selected_account: selected_account.clone(), show_modal: show_modal.clone(), account_to_delete: account_to_delete.clone()}
+                    AccountsTable { 
+                        accounts: accounts.read().clone(), 
+                        selected_account: selected_account.clone(), 
+                        show_modal: show_modal.clone(), 
+                        account_to_delete: account_to_delete.clone(),
+                        current_page: current_page.clone(),
+                        page_size: page_size.clone(),
+                        total_accounts: total_accounts.clone(),
+                    }
                 }
             }
     )
 }
 
 #[component]
-fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account>>, show_modal: Signal<bool>, account_to_delete: Signal<Option<Account>>) -> Element {
+fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account>>, show_modal: Signal<bool>, account_to_delete: Signal<Option<Account>>, current_page: Signal<usize>, page_size: Signal<usize>, total_accounts: Signal<usize>) -> Element {
     rsx! {
     div { class: "w-full overflow-hidden rounded-lg shadow-xs",
         div { class: "w-full overflow-x-auto",
@@ -189,15 +249,31 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
         // Pagination
         div {
             class: "grid px-4 py-3 text-xs font-semibold tracking-wide text-gray-500 uppercase border-t dark:border-gray-700 bg-gray-50 sm:grid-cols-9 dark:text-gray-400 dark:bg-gray-800",
-            span { class: "flex items-center col-span-3", "Showing 21-30 of 100" }
+            span { class: "flex items-center col-span-3", 
+                {
+                    let current = *current_page.read();
+                    let size = *page_size.read();
+                    let total = *total_accounts.read();
+                    let start = if total > 0 { current * size + 1 } else { 0 };
+                    let end = std::cmp::min((current + 1) * size, total);
+                    format!("Showing {}-{} of {}", start, end, total)
+                }
+            }
             span { class: "col-span-2" }
             span { class: "flex col-span-4 mt-2 sm:mt-auto sm:justify-end",
                 nav { aria_label: "Table navigation",
                     ul { class: "inline-flex items-center",
                         li {
                             button {
-                                class: "px-3 py-1 rounded-md rounded-l-lg focus:outline-none focus:shadow-outline-purple",
+                                class: "px-3 py-1 rounded-md rounded-l-lg focus:outline-none focus:shadow-outline-purple disabled:opacity-50 disabled:cursor-not-allowed",
                                 aria_label: "Previous",
+                                disabled: *current_page.read() == 0,
+                                onclick: move |_| {
+                                    let current = *current_page.read();
+                                    if current > 0 {
+                                        current_page.set(current - 1);
+                                    }
+                                },
                                 svg {
                                     class: "w-4 h-4 fill-current",
                                     view_box: "0 0 20 20",
@@ -209,22 +285,67 @@ fn AccountsTable(accounts: Vec<Account>, selected_account: Signal<Option<Account
                                 }
                             }
                         }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "1" } }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "2" } }
-                        li {
-                            button {
-                                class: "px-3 py-1 text-white transition-colors duration-150 bg-purple-600 border border-r-0 border-purple-600 rounded-md focus:outline-none focus:shadow-outline-purple",
-                                "3"
-                            }
+                        {
+                            // Calculate page numbers to display
+                            let current = *current_page.read();
+                            let size = *page_size.read();
+                            let total = *total_accounts.read();
+                            let total_pages = if total > 0 { ((total as f64) / (size as f64)).ceil() as usize } else { 1 };
+                            
+                            // Calculate start and end pages (max 7 pages)
+                            let max_visible = 7;
+                            let half_visible = max_visible / 2; // 3
+                            
+                            let (start_page, end_page) = if total_pages <= max_visible {
+                                (0, total_pages)
+                            } else if current < half_visible {
+                                (0, max_visible)
+                            } else if current >= total_pages - half_visible {
+                                (total_pages - max_visible, total_pages)
+                            } else {
+                                (current - half_visible, current + half_visible + 1)
+                            };
+                            
+                            let current_page_signal = current_page.clone();
+                            
+                            (start_page..end_page).map(move |page| {
+                                let is_current = page == current;
+                                let mut page_signal = current_page_signal.clone();
+                                rsx!(
+                                    li {
+                                        button {
+                                            class: if is_current {
+                                                "px-3 py-1 text-white transition-colors duration-150 bg-purple-600 border border-r-0 border-purple-600 rounded-md focus:outline-none focus:shadow-outline-purple"
+                                            } else {
+                                                "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple hover:bg-purple-100 dark:hover:bg-purple-900"
+                                            },
+                                            onclick: move |_| page_signal.set(page),
+                                            "{page + 1}"
+                                        }
+                                    }
+                                )
+                            })
                         }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "4" } }
-                        li { span { class: "px-3 py-1", "..." } }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "8" } }
-                        li { button { class: "px-3 py-1 rounded-md focus:outline-none focus:shadow-outline-purple", "9" } }
                         li {
                             button {
-                                class: "px-3 py-1 rounded-md rounded-r-lg focus:outline-none focus:shadow-outline-purple",
+                                class: "px-3 py-1 rounded-md rounded-r-lg focus:outline-none focus:shadow-outline-purple disabled:opacity-50 disabled:cursor-not-allowed",
                                 aria_label: "Next",
+                                disabled: {
+                                    let current = *current_page.read();
+                                    let size = *page_size.read();
+                                    let total = *total_accounts.read();
+                                    let max_page = if total > 0 { (total - 1) / size } else { 0 };
+                                    current >= max_page
+                                },
+                                onclick: move |_| {
+                                    let current = *current_page.read();
+                                    let size = *page_size.read();
+                                    let total = *total_accounts.read();
+                                    let max_page = if total > 0 { (total - 1) / size } else { 0 };
+                                    if current < max_page {
+                                        current_page.set(current + 1);
+                                    }
+                                },
                                 svg {
                                     class: "w-4 h-4 fill-current",
                                     view_box: "0 0 20 20",
